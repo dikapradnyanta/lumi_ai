@@ -57,13 +57,16 @@ else
 fi
 
 # ── Build payload dengan parameter finetuning ──────────────────────────────────
+DYNAMIC_CONTEXT=$(python3 "$HOME/.config/hypr/scripts/quickshell/lumi/get_context.py" 2>/dev/null)
+
 PAYLOAD=$(jq \
     --arg model "$MODEL" \
     --argjson temperature "$TEMPERATURE" \
     --argjson top_p "$TOP_P" \
     --argjson max_tokens "$MAX_TOKENS" \
+    --arg dyn_ctx "$DYNAMIC_CONTEXT" \
     '{
-        messages: .,
+        messages: (if .[0].role == "system" then (.[0].content += "\n\n" + $dyn_ctx | .) else ([{role: "system", content: $dyn_ctx}] + .) end),
         stream: true,
         model: $model,
         max_tokens: $max_tokens,
