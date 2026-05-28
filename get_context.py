@@ -49,6 +49,8 @@ if __name__ == "__main__":
 <system_state>
 <calendar_today>
 {calendar}
+
+(AI Note: If you see an activity like 'Tidur' split into 00:00-05:15 and 22:15-00:00, this simply means the user sleeps from 22:15 at night until 05:15 the next morning. Explain it naturally as ONE overnight routine, do NOT say they have "two sleep sessions today".)
 </calendar_today>
 
 <available_tools>
