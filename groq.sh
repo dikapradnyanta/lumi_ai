@@ -32,10 +32,29 @@ if [ ! -f "$REQ_FILE" ] || ! jq empty "$REQ_FILE" 2>/dev/null; then
 fi
 
 # ── Baca konfigurasi dari settings.json ───────────────────────────────────────
-MODEL=$(jq -r '.lumi.model // "llama-3.3-70b-versatile"' "$SETTINGS" 2>/dev/null)
 TEMPERATURE=$(jq -r '.lumi.temperature // 0.7' "$SETTINGS" 2>/dev/null)
 TOP_P=$(jq -r '.lumi.topP // 0.9' "$SETTINGS" 2>/dev/null)
 MAX_TOKENS=$(jq -r '.lumi.maxTokens // 1024' "$SETTINGS" 2>/dev/null)
+
+# ── DYNAMIC MODEL ROUTING ─────────────────────────────────────────────────────
+# Model kecil (cepat, hemat) untuk percakapan pendek
+SMALL_MODEL=$(jq -r '.lumi.smallModel // "llama-3.1-8b-instant"' "$SETTINGS" 2>/dev/null)
+# Model besar (kuat) untuk konteks panjang / analisis kompleks
+LARGE_MODEL=$(jq -r '.lumi.model // "llama-3.3-70b-versatile"' "$SETTINGS" 2>/dev/null)
+# Ambang batas karakter — di bawah ini pakai model kecil
+THRESHOLD=$(jq -r '.lumi.routingThreshold // 1500' "$SETTINGS" 2>/dev/null)
+
+# Hitung total karakter dari semua pesan dalam file request
+CONTEXT_LENGTH=$(jq -r 'map(.content // "") | join("") | length' "$REQ_FILE" 2>/dev/null || echo "0")
+
+# Tentukan model secara otomatis berdasarkan panjang konteks
+if [ "$CONTEXT_LENGTH" -lt "$THRESHOLD" ]; then
+    MODEL="$SMALL_MODEL"
+    echo "[Lumi Routing] ${CONTEXT_LENGTH} char < ${THRESHOLD} → $SMALL_MODEL" > /tmp/lumi_routing.log
+else
+    MODEL="$LARGE_MODEL"
+    echo "[Lumi Routing] ${CONTEXT_LENGTH} char >= ${THRESHOLD} → $LARGE_MODEL" > /tmp/lumi_routing.log
+fi
 
 # ── Build payload dengan parameter finetuning ──────────────────────────────────
 PAYLOAD=$(jq \
