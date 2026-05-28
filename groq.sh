@@ -19,7 +19,7 @@ if [ -z "$KEY" ]; then
 fi
 
 if [ -z "$KEY" ]; then
-    quickshell ipc call lumi groqError "API key tidak ditemukan di settings.json"
+    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "API key tidak ditemukan di settings.json"
     exit 1
 fi
 
@@ -27,7 +27,7 @@ IFS=',' read -ra KEYS <<< "$KEY"
 
 # Validasi file request
 if [ ! -f "$REQ_FILE" ] || ! jq empty "$REQ_FILE" 2>/dev/null; then
-    quickshell ipc call lumi groqError "File request invalid"
+    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "File request invalid"
     exit 1
 fi
 
@@ -78,7 +78,7 @@ for CURRENT_KEY in "${KEYS[@]}"; do
     [ -z "$CURRENT_KEY" ] && continue
 
     if [ "$AUTO_SPEAK" = "true" ]; then
-        quickshell ipc call lumi streamStart
+        quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi streamStart
 
         FULL_TEXT=$(curl -s --no-buffer \
             -X POST "https://api.groq.com/openai/v1/chat/completions" \
@@ -96,8 +96,8 @@ for CURRENT_KEY in "${KEYS[@]}"; do
         fi
 
         if [ -n "$FULL_TEXT" ]; then
-            quickshell ipc call lumi groqComplete "$FULL_TEXT"
-            quickshell ipc call lumi ttsComplete
+            quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$FULL_TEXT"
+            quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi ttsComplete
             SUCCESS=true
             break
         fi
@@ -116,7 +116,7 @@ for CURRENT_KEY in "${KEYS[@]}"; do
 
         # Tangkap error API (rate limit, token limit, dll)
         if [ "$HTTP_STATUS" = "429" ]; then
-            quickshell ipc call lumi groqError "Rate limit, coba lagi sebentar..."
+            quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "Rate limit, coba lagi sebentar..."
             continue
         fi
 
@@ -127,9 +127,9 @@ for CURRENT_KEY in "${KEYS[@]}"; do
                 if echo "$CONTENT" | jq -e 'type == "object"' >/dev/null 2>&1; then
                     # Jika response adalah JSON murni, teruskan sebagai struktur data
                     # Ke depannya QML bisa menangkap ini sebagai command (misal: jalankan script)
-                    quickshell ipc call lumi groqComplete "$CONTENT"
+                    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$CONTENT"
                 else
-                    quickshell ipc call lumi groqComplete "$CONTENT"
+                    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$CONTENT"
                 fi
                 SUCCESS=true
                 break
@@ -139,6 +139,6 @@ for CURRENT_KEY in "${KEYS[@]}"; do
 done
 
 if [ "$SUCCESS" = "false" ]; then
-    quickshell ipc call lumi groqError "Semua API key gagal atau rate limited"
+    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "Semua API key gagal atau rate limited"
     exit 1
 fi
