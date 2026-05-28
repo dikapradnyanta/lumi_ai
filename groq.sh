@@ -59,7 +59,7 @@ fi
 # ── Build payload dengan parameter finetuning ──────────────────────────────────
 PAYLOAD=$(jq \
     --arg model "$MODEL" \
-    --argjson temperature "$TEMPERATURE" \ 
+    --argjson temperature "$TEMPERATURE" \
     --argjson top_p "$TOP_P" \
     --argjson max_tokens "$MAX_TOKENS" \
     '{
