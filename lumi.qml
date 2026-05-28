@@ -185,7 +185,9 @@ Item {
                 arr.push({ role: msg.role, content: msg.content })
             }
         }
-        Quickshell.execDetached(["bash", "-c", "printf '%s' '" + JSON.stringify(arr).replace(/'/g, "'\\''") + "' > '" + scriptDir + "/history.json'"])
+        let jsonStr = JSON.stringify(arr).replace(/'/g, "'\\''")
+        saveHistoryProc.contentToSave = jsonStr
+        saveHistoryProc.running = true
     }
 
     function sendMessage(text) {
@@ -278,6 +280,44 @@ Item {
         }
     }
 
+    Process {
+        id: loadHistoryProc
+        command: ["cat", scriptDir + "/history.json"]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let loaded = false
+                try {
+                    let text = (this.text || "").trim()
+                    if (text !== "") {
+                        let arr = JSON.parse(text)
+                        if (arr.length > 0) {
+                            for (let i = 0; i < arr.length; i++) {
+                                messagesModel.append(arr[i])
+                            }
+                            loaded = true
+                            Qt.callLater(() => { chatFlickable.scrollToBottom() })
+                        }
+                    }
+                } catch (e) {
+                    console.log("[lumi] Failed to parse history.json: " + e)
+                }
+
+                if (!loaded && messagesModel.count === 0) {
+                    messagesModel.append({ role: "assistant",
+                        content: "🟢 Hello! I'm Lumi. Ask me anything about your system or anything else!" })
+                }
+            }
+        }
+    }
+
+
+    Process {
+        id: saveHistoryProc
+        property string contentToSave: ""
+        command: ["bash", "-c", "printf '%s' '" + contentToSave + "' > '" + scriptDir + "/history.json'"]
+        running: false
+    }
 
     // ── Background Visuals ────────────────────────────────────────────────
     Rectangle {
