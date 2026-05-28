@@ -107,6 +107,53 @@ Rectangle {
 
         Item { width: 1; height: 8 }
 
+        // ── Thinking indicator — tiga titik naik turun (gaya Gemini) ──────
+        Row {
+            id: thinkingDots
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 9
+            visible: root.speechState === "thinking"
+            opacity: root.speechState === "thinking" ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.InOutCubic } }
+
+            Repeater {
+                model: 3
+                delegate: Item {
+                    width: 9; height: 20
+                    required property int index
+
+                    Rectangle {
+                        id: dot
+                        width: 9; height: 9
+                        radius: 4.5
+                        color: root.primaryColor
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: 6
+
+                        SequentialAnimation on y {
+                            loops: Animation.Infinite
+                            running: root.speechState === "thinking"
+                            PauseAnimation { duration: index * 130 }
+                            NumberAnimation { to: 0;  duration: 280; easing.type: Easing.OutQuad }
+                            NumberAnimation { to: 6;  duration: 280; easing.type: Easing.InQuad }
+                            PauseAnimation { duration: (2 - index) * 130 }
+                        }
+
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite
+                            running: root.speechState === "thinking"
+                            PauseAnimation { duration: index * 130 }
+                            NumberAnimation { to: 1.0; duration: 200 }
+                            NumberAnimation { to: 0.4; duration: 200 }
+                            PauseAnimation { duration: (2 - index) * 130 }
+                        }
+                    }
+                }
+            }
+        }
+
+        Item { width: 1; height: 10 }
+
         // Response text
         ResponseDisplay {
             anchors.horizontalCenter: parent.horizontalCenter

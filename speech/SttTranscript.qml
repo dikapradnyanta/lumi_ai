@@ -4,29 +4,20 @@ Item {
     id: root
 
     width: 320
-    height: visible ? contentCol.implicitHeight : 0
+    height: contentCol.implicitHeight
 
     property string transcript: ""
     property string speechState: "idle"
     property color textColor: "white"
     property color cursorColor: "#4DB6AC"
 
-    // Tampil hanya saat ada teks dan state bukan speaking
-    opacity: {
-        if (transcript.length === 0) return 0
-        if (speechState === "thinking") return 0.55
-        if (speechState === "listening") return 0
-        return 0
-    }
+    // Tampil hanya saat state "thinking" DAN ada teks
+    opacity: (speechState === "thinking" && transcript.length > 0) ? 1.0 : 0.0
 
-    visible: opacity > 0
+    visible: true
 
     Behavior on opacity {
-        NumberAnimation { duration: 280; easing.type: Easing.InOutCubic }
-    }
-
-    Behavior on height {
-        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 300; easing.type: Easing.InOutCubic }
     }
 
     // ── Word-by-word reveal ─────────────────────────────────────────────
@@ -34,11 +25,12 @@ Item {
     property var wordList: []
     property int wordIdx: 0
 
+    // Simpan kata-kata saat transcript berubah, TAPI jangan mulai timer dulu
     onTranscriptChanged: {
         displayText = ""
         wordIdx = 0
         wordList = transcript.split(" ").filter(function(w) { return w.length > 0 })
-        if (wordList.length > 0) wordTimer.start()
+        // Timer akan dimulai di onSpeechStateChanged saat state = "thinking"
     }
 
     Timer {
@@ -55,13 +47,20 @@ Item {
         }
     }
 
-    // Reset saat sesi baru mulai
     onSpeechStateChanged: {
         if (speechState === "listening") {
+            // Reset saat sesi baru
             wordTimer.stop()
             displayText = ""
             wordIdx = 0
             wordList = []
+        } else if (speechState === "thinking") {
+            // Mulai reveal kata per kata SEKARANG saat komponen sudah visible
+            if (wordList.length > 0 && !wordTimer.running) {
+                displayText = ""
+                wordIdx = 0
+                wordTimer.start()
+            }
         }
     }
 
@@ -77,7 +76,7 @@ Item {
             height: 1
             anchors.horizontalCenter: parent.horizontalCenter
             color: root.textColor
-            opacity: 0.15
+            opacity: 0.18
             visible: root.displayText.length > 0
         }
 
