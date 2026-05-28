@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Effects
 import "."
+import "../../"
+
 
 Rectangle {
     id: root

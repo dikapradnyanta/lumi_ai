@@ -223,10 +223,12 @@ Item {
                 if (reply === "NO_KEY") {
                     root.hasApiKey = false
                 } else if (reply.startsWith("ERROR:")) {
-                    messagesModel.append({ role: "assistant",
-                        content: "⚠️ " + reply.slice(6) })
+                    let errMsg = reply.slice(6).trim()
+                    messagesModel.append({ role: "assistant", content: "⚠️ " + errMsg })
+                    if (typeof LumiService !== "undefined") LumiService.groqError(errMsg)
                 } else if (reply !== "") {
                     messagesModel.append({ role: "assistant", content: reply })
+                    if (typeof LumiService !== "undefined") LumiService._handleGroqComplete(reply)
                 }
                 Qt.callLater(() => { chatFlickable.scrollToBottom() })
             }

@@ -19,7 +19,7 @@ if [ -z "$KEY" ]; then
 fi
 
 if [ -z "$KEY" ]; then
-    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "API key tidak ditemukan di settings.json"
+    echo "ERROR: API key tidak ditemukan di settings.json"
     exit 1
 fi
 
@@ -27,7 +27,7 @@ IFS=',' read -ra KEYS <<< "$KEY"
 
 # Validasi file request
 if [ ! -f "$REQ_FILE" ] || ! jq empty "$REQ_FILE" 2>/dev/null; then
-    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "File request invalid"
+    echo "ERROR: File request invalid"
     exit 1
 fi
 
@@ -119,21 +119,14 @@ for CURRENT_KEY in "${KEYS[@]}"; do
 
         # Tangkap error API (rate limit, token limit, dll)
         if [ "$HTTP_STATUS" = "429" ]; then
-            quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "Rate limit, coba lagi sebentar..."
+            echo "ERROR: Rate limit, coba lagi sebentar..."
             continue
         fi
 
         if [ "$HTTP_STATUS" = "200" ]; then
             CONTENT=$(echo "$BODY" | jq -r '.choices[0].message.content // empty')
             if [ -n "$CONTENT" ]; then
-                # Deteksi JSON Mode (Persiapan Dasar Tool Calling)
-                if echo "$CONTENT" | jq -e 'type == "object"' >/dev/null 2>&1; then
-                    # Jika response adalah JSON murni, teruskan sebagai struktur data
-                    # Ke depannya QML bisa menangkap ini sebagai command (misal: jalankan script)
-                    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$CONTENT"
-                else
-                    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$CONTENT"
-                fi
+                echo "$CONTENT"
                 SUCCESS=true
                 break
             fi
@@ -142,6 +135,6 @@ for CURRENT_KEY in "${KEYS[@]}"; do
 done
 
 if [ "$SUCCESS" = "false" ]; then
-    quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqError "Semua API key gagal atau rate limited"
+    echo "ERROR: Semua API key gagal atau rate limited"
     exit 1
 fi
