@@ -45,42 +45,98 @@ Item {
     readonly property string scriptDir:
         "/home/dikapradnyanta/.config/hypr/scripts/quickshell/lumi"
 
+    // ── Persistent memory ringkasan sesi ──────────────────────────────────
+    property string sessionSummary: ""
+    property int contextThreshold: Config.getSetting("lumi", {}).contextThreshold !== undefined ? Config.getSetting("lumi", {}).contextThreshold : 4000
+    property string summaryPrompt: Config.getSetting("lumi", {}).summaryPrompt !== undefined ? Config.getSetting("lumi", {}).summaryPrompt : "Ringkas konteks obrolan berikut:"
+
     // ── System Prompt ─────────────────────────────────────────────────────
     function buildSystemPrompt() {
         let now = new Date()
-        let dateStr = now.toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" })
-        let timeStr = now.toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" })
-        return "You are Lumi, a smart AI assistant embedded in a custom Hyprland Linux desktop. " +
-               "The user runs Arch Linux with Hyprland WM and Quickshell UI. " +
-               "Current date: " + dateStr + ", time: " + timeStr + ". " +
-               "Be helpful, concise, and friendly. For code, use markdown code blocks. " +
-               "For Linux questions, prefer Arch/pacman solutions."
+        let dateStr = now.toLocaleDateString("id-ID", {
+            weekday: "long", year: "numeric", month: "long", day: "numeric"
+        })
+        let timeStr = now.toLocaleTimeString("id-ID", {
+            hour: "2-digit", minute: "2-digit"
+        })
+        let hour = now.getHours()
+        let sapa = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam"
+
+        let prompt = 
+            "## Role\n" +
+            "Kamu adalah Lumi, asisten AI pribadi yang cerdas, ramah, dan empatik. Kamu tertanam di desktop Linux (Arch Linux, Hyprland WM, Quickshell UI). " +
+            "Tanggal sekarang: " + dateStr + ", pukul " + timeStr + ".\n\n" +
+            
+            "## Goal\n" +
+            "Selesaikan tugas dan jawab pertanyaan teknis maupun umum dari pengguna. " +
+            "Gunakan pengetahuan tentang Linux (Arch/pacman, systemd, Hyprland, bash/zsh), Programming, Kecerdasan Buatan, dan produktivitas harian.\n\n" +
+            
+            "## Constraints\n" +
+            "- Berbicara dalam Bahasa Indonesia yang natural, santai namun informatif. Boleh gunakan 'kamu/aku'.\n" +
+            "- Singkat dan padat untuk hal sederhana; detail untuk topik teknis.\n" +
+            "- Jika tidak tahu, jujur dan sarankan cara mencarinya. Jangan mengarang perintah terminal yang destruktif.\n\n" +
+            
+            "## Output Format\n" +
+            "- Untuk kode: selalu gunakan markdown code blocks dengan bahasa (```bash, ```python).\n" +
+            "- Untuk daftar langkah: gunakan numbered list.\n" +
+            "- Jangan menggunakan format JSON kecuali pengguna explicitly memintanya.\n"
+
+        if (root.sessionSummary && root.sessionSummary.length > 0) {
+            prompt += "\n\n<context>\n" + root.sessionSummary + "\n</context>\n"
+        }
+
+        return prompt
     }
 
     // ── Messages ──────────────────────────────────────────────────────────
     ListModel { id: messagesModel }
 
     function estimateTokens(text) {
-        return Math.ceil(text.length / 4)
+        // Estimasi lebih akurat: Bahasa Indonesia ~3.5 karakter per token
+        return Math.ceil(text.length / 3.5)
+    }
+
+    // Buat ringkasan otomatis ketika history terlalu panjang
+    function buildSessionSummary(trimmedMessages) {
+        if (trimmedMessages.length < 4) return ""
+        let topics = []
+        for (let i = 0; i < Math.min(trimmedMessages.length, 6); i++) {
+            let m = trimmedMessages[i]
+            if (m.role === "user" && m.content.length > 10) {
+                topics.push(m.content.substring(0, 60).replace(/\n/g, " "))
+            }
+        }
+        if (topics.length === 0) return ""
+        return root.summaryPrompt + " " + topics.join("; ") + "."
     }
 
     function buildApiMessages() {
         let sysPrompt = buildSystemPrompt()
         let sysTokens = estimateTokens(sysPrompt)
+
+        // Budget dari contextThreshold settings.json
+        let TOKEN_BUDGET = root.contextThreshold - sysTokens
+        if (TOKEN_BUDGET < 1000) TOKEN_BUDGET = 1000 // Failsafe
         
-        // Budget: 6000 token untuk history (sisakan 2000 untuk response)
-        let TOKEN_BUDGET = 6000 - sysTokens
         let usedTokens = 0
         let selectedMessages = []
+        let trimmedMessages = []
 
-        // Iterasi dari belakang (pesan terbaru) agar selalu masuk
+        // Iterasi dari belakang (pesan terbaru selalu masuk)
         for (let i = messagesModel.count - 1; i >= 0; i--) {
             let m = messagesModel.get(i)
             if (m.role !== "user" && m.role !== "assistant") continue
 
             let msgTokens = estimateTokens(m.role + m.content)
             if (usedTokens + msgTokens > TOKEN_BUDGET) {
-                console.log("[lumi] Context window: menggunakan " + selectedMessages.length + " pesan")
+                // Simpan pesan yang terpotong untuk dijadikan summary
+                for (let j = i; j >= 0; j--) {
+                    let old = messagesModel.get(j)
+                    if (old.role === "user" || old.role === "assistant") {
+                        trimmedMessages.unshift({ role: old.role, content: old.content })
+                    }
+                }
+                console.log("[lumi] Context trim: " + trimmedMessages.length + " pesan lama → summary")
                 break
             }
 
@@ -88,11 +144,16 @@ Item {
             usedTokens += msgTokens
         }
 
-        let trimCount = messagesModel.count - selectedMessages.length
-        if (trimCount > 0) {
+        // Jika ada pesan yang terpotong, buat ringkasan singkat
+        if (trimmedMessages.length > 0) {
+            let summary = buildSessionSummary(trimmedMessages)
+            if (summary) {
+                root.sessionSummary = summary
+            }
             selectedMessages.unshift({
                 role: "system",
-                content: "[Catatan: " + trimCount + " pesan awal dihapus karena batas konteks. Fokus pada percakapan terbaru.]"
+                content: "[" + trimmedMessages.length + " pesan awal dihapus. " +
+                         (summary || "Konteks lanjutan dari percakapan sebelumnya.") + "]"
             })
         }
 
@@ -165,6 +226,8 @@ Item {
                 root.isRecording = false
                 let text = (this.text || "").trim()
                 if (text !== "" && text !== "null") {
+                    // Tampilkan teks transkripsi di SpeechOrb sebelum kirim ke Groq
+                    speechOrb.sttTranscript = text
                     msgInput.text = text
                     msgInput.forceActiveFocus()
                     root.sendMessage(text) // Auto-send for seamless voice

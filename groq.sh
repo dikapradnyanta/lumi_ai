@@ -1,5 +1,5 @@
 #!/bin/bash
-# groq.sh — streaming + hardened version
+# groq.sh — streaming + hardened version (v2 - finetuned)
 
 set -euo pipefail
 
@@ -31,11 +31,27 @@ if [ ! -f "$REQ_FILE" ] || ! jq empty "$REQ_FILE" 2>/dev/null; then
     exit 1
 fi
 
-# Dapatkan model (jika kosong fallback ke llama-3)
-MODEL=$(jq -r '.lumi.model // "llama-3.1-8b-instant"' "$SETTINGS" 2>/dev/null)
+# ── Baca konfigurasi dari settings.json ───────────────────────────────────────
+MODEL=$(jq -r '.lumi.model // "llama-3.3-70b-versatile"' "$SETTINGS" 2>/dev/null)
+TEMPERATURE=$(jq -r '.lumi.temperature // 0.7' "$SETTINGS" 2>/dev/null)
+TOP_P=$(jq -r '.lumi.topP // 0.9' "$SETTINGS" 2>/dev/null)
+MAX_TOKENS=$(jq -r '.lumi.maxTokens // 1024' "$SETTINGS" 2>/dev/null)
 
-# Build payload (bungkus array dari REQ_FILE ke field messages)
-PAYLOAD=$(jq --arg model "$MODEL" '{messages: ., stream: true, model: $model, max_tokens: 1024}' "$REQ_FILE")
+# ── Build payload dengan parameter finetuning ──────────────────────────────────
+PAYLOAD=$(jq \
+    --arg model "$MODEL" \
+    --argjson temperature "$TEMPERATURE" \ 
+    --argjson top_p "$TOP_P" \
+    --argjson max_tokens "$MAX_TOKENS" \
+    '{
+        messages: .,
+        stream: true,
+        model: $model,
+        max_tokens: $max_tokens,
+        temperature: $temperature,
+        top_p: $top_p,
+        stop: null
+    }' "$REQ_FILE")
 
 SUCCESS=false
 for CURRENT_KEY in "${KEYS[@]}"; do
@@ -43,9 +59,8 @@ for CURRENT_KEY in "${KEYS[@]}"; do
     [ -z "$CURRENT_KEY" ] && continue
 
     if [ "$AUTO_SPEAK" = "true" ]; then
-        # Beri tahu UI bahwa streaming dimulai
         quickshell ipc call lumi streamStart
-        
+
         FULL_TEXT=$(curl -s --no-buffer \
             -X POST "https://api.groq.com/openai/v1/chat/completions" \
             -H "Authorization: Bearer $CURRENT_KEY" \
@@ -68,7 +83,6 @@ for CURRENT_KEY in "${KEYS[@]}"; do
             break
         fi
     else
-        # Non-streaming fallback
         HTTP_RESPONSE=$(curl -s -w "\n__HTTP_STATUS__%{http_code}" \
             --max-time 25 \
             --retry 1 \
@@ -81,10 +95,23 @@ for CURRENT_KEY in "${KEYS[@]}"; do
         HTTP_STATUS=$(echo "$HTTP_RESPONSE" | grep "__HTTP_STATUS__" | sed 's/__HTTP_STATUS__//')
         BODY=$(echo "$HTTP_RESPONSE" | grep -v "__HTTP_STATUS__")
 
+        # Tangkap error API (rate limit, token limit, dll)
+        if [ "$HTTP_STATUS" = "429" ]; then
+            quickshell ipc call lumi groqError "Rate limit, coba lagi sebentar..."
+            continue
+        fi
+
         if [ "$HTTP_STATUS" = "200" ]; then
             CONTENT=$(echo "$BODY" | jq -r '.choices[0].message.content // empty')
             if [ -n "$CONTENT" ]; then
-                quickshell ipc call lumi groqComplete "$CONTENT"
+                # Deteksi JSON Mode (Persiapan Dasar Tool Calling)
+                if echo "$CONTENT" | jq -e 'type == "object"' >/dev/null 2>&1; then
+                    # Jika response adalah JSON murni, teruskan sebagai struktur data
+                    # Ke depannya QML bisa menangkap ini sebagai command (misal: jalankan script)
+                    quickshell ipc call lumi groqComplete "$CONTENT"
+                else
+                    quickshell ipc call lumi groqComplete "$CONTENT"
+                fi
                 SUCCESS=true
                 break
             fi

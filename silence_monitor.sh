@@ -1,66 +1,76 @@
 #!/bin/bash
-# silence_monitor.sh — tuned version
-# Deteksi silence yang lebih robust dengan adaptive threshold
+# silence_monitor.sh — v2 with adaptive ambient noise calibration
 
 AUDIO_FILE="${1:-/tmp/stewart_mic.wav}"
-STT_PID_FILE="/tmp/stewart_stt.pid"
+SETTINGS="$HOME/.config/hypr/settings.json"
 MONITOR_PID_FILE="/tmp/stewart_silence.pid"
 
-# ── Konfigurasi (tunable) ──────────────────────────────────────
-SILENCE_THRESHOLD="-38dB"   # -35 terlalu sensitif, -40 terlalu longgar
-                             # Rekomendasi: -38 untuk ruangan normal
-SILENCE_DURATION="2.2"      # Detik: 2.0 terlalu cepat, 2.5 terlalu lambat
-POLL_INTERVAL="0.3"         # Cek setiap 0.3 detik
-MAX_RECORD_TIME="30"        # Maksimum 30 detik rekaman (safety net)
+# ── Konfigurasi (bisa di-override dari settings.json) ─────────────────────────
+SILENCE_THRESHOLD=$(jq -r '.lumi.silenceThreshold // "-38dB"' "$SETTINGS" 2>/dev/null || echo "-38dB")
+SILENCE_DURATION=$(jq -r '.lumi.silenceDuration // 2.0' "$SETTINGS" 2>/dev/null || echo "2.0")
+MAX_RECORD_TIME=$(jq -r '.lumi.maxRecordTime // 45' "$SETTINGS" 2>/dev/null || echo "45")
 
-# ── Simpan PID monitor ini ────────────────────────────────────
 echo $$ > "$MONITOR_PID_FILE"
 
-# ── Tunggu file audio muncul ──────────────────────────────────
+# ── Tunggu file audio muncul ──────────────────────────────────────────────────
 WAIT=0
-while [ ! -f "$AUDIO_FILE" ] || [ $(stat -c %s "$AUDIO_FILE") -lt 44 ]; do
+while [ ! -f "$AUDIO_FILE" ] || [ $(stat -c %s "$AUDIO_FILE" 2>/dev/null || echo 0) -lt 44 ]; do
     sleep 0.1
     WAIT=$((WAIT + 1))
-    if [ $WAIT -gt 30 ]; then
+    if [ $WAIT -gt 40 ]; then
         echo "[silence_monitor] Timeout menunggu file audio" >&2
         exit 1
     fi
 done
 
-# ── Safety net: paksa stop setelah MAX_RECORD_TIME ───────────
+# ── Adaptive calibration: ukur noise lantai selama 0.5 detik pertama ─────────
+# Jika ambient noise tinggi (ruangan bising), naikan threshold secara otomatis
+AMBIENT_LEVEL=$(ffmpeg -loglevel error \
+    -t 0.5 -i "$AUDIO_FILE" \
+    -af "volumedetect" -f null - 2>&1 | \
+    grep mean_volume | grep -oP '[-]?\d+\.?\d+' | head -1)
+
+if [ -n "$AMBIENT_LEVEL" ] && [ "$AMBIENT_LEVEL" != "" ]; then
+    AMBIENT_INT=$(echo "$AMBIENT_LEVEL" | cut -d'.' -f1)
+    if [ "$AMBIENT_INT" -gt -50 ] 2>/dev/null; then
+        NEW_THRESHOLD=$((AMBIENT_INT + 12))
+        if [ $NEW_THRESHOLD -lt -45 ]; then NEW_THRESHOLD=-45; fi
+        if [ $NEW_THRESHOLD -gt -25 ]; then NEW_THRESHOLD=-25; fi
+        SILENCE_THRESHOLD="${NEW_THRESHOLD}dB"
+        echo "[silence_monitor] Ambient: ${AMBIENT_LEVEL}dB → adaptive threshold: $SILENCE_THRESHOLD" >&2
+    fi
+fi
+
+# ── Safety net: paksa stop setelah MAX_RECORD_TIME ───────────────────────────
 (
     sleep "$MAX_RECORD_TIME"
-    if [ -f "$MONITOR_PID_FILE" ]; then
-        echo "[silence_monitor] Max record time reached, stopping..." >&2
+    if [ -f "$MONITOR_PID_FILE" ] && [ "$(cat $MONITOR_PID_FILE)" = "$$" ]; then
+        echo "[silence_monitor] Max record time (${MAX_RECORD_TIME}s) tercapai, stop..." >&2
         bash "$(dirname "$0")/stt.sh" stop
     fi
 ) &
 SAFETY_PID=$!
 
-# ── Monitor loop ──────────────────────────────────────────────
-echo "[silence_monitor] Monitoring dimulai (threshold: $SILENCE_THRESHOLD, duration: ${SILENCE_DURATION}s)"
+echo "[silence_monitor] Threshold: $SILENCE_THRESHOLD, Max silence: ${SILENCE_DURATION}s" >&2
 
-# Gunakan ffmpeg untuk deteksi silence secara real-time
-# -t baca maksimum, -af silencedetect output ke stderr
+# ── Monitor loop dengan silencedetect ────────────────────────────────────────
 ffmpeg -loglevel info \
     -i "$AUDIO_FILE" \
     -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" \
     -f null - 2>&1 | \
 while IFS= read -r line; do
     if echo "$line" | grep -q "silence_end"; then
-        # Silence end berarti suara terdeteksi lagi, reset
-        echo "[silence_monitor] Suara terdeteksi, reset timer"
+        echo "[silence_monitor] Suara aktif" >&2
     elif echo "$line" | grep -q "silence_start"; then
-        SILENCE_TS=$(echo "$line" | grep -oP '(?<=silence_start: )\d+\.\d+')
-        echo "[silence_monitor] Silence dimulai pada ${SILENCE_TS}s"
+        SILENCE_TS=$(echo "$line" | grep -oP '(?<=silence_start: )[\d.]+')
+        echo "[silence_monitor] Hening sejak ${SILENCE_TS}s" >&2
     elif echo "$line" | grep -q "silence_duration"; then
-        DUR=$(echo "$line" | grep -oP '(?<=silence_duration: )\d+\.\d+')
-        echo "[silence_monitor] Silence ${DUR}s terdeteksi, menghentikan rekaman..."
-        kill $SAFETY_PID 2>/dev/null
+        DUR=$(echo "$line" | grep -oP '(?<=silence_duration: )[\d.]+')
+        echo "[silence_monitor] Hening ${DUR}s → stop rekaman" >&2
+        kill $SAFETY_PID 2>/dev/null || true
         bash "$(dirname "$0")/stt.sh" stop
         exit 0
     fi
 done
 
-# Cleanup
-kill $SAFETY_PID 2>/dev/null
+kill $SAFETY_PID 2>/dev/null || true

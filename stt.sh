@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-
-# Stewart AI - Speech to Text Backend
-# Uses arecord for recording and Groq's whisper-large-v3-turbo for transcription
+# stt.sh — Speech to Text Backend (v2 - finetuned)
+# Groq Whisper large-v3-turbo + language hint + prompt konteks
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="/tmp/stewart_stt.pid"
 AUDIO_FILE="/tmp/stewart_mic.wav"
+SETTINGS="$HOME/.config/hypr/settings.json"
 
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
     source "$SCRIPT_DIR/.env"
@@ -13,54 +13,66 @@ fi
 
 ACTION="$1"
 
+# ── Baca config ───────────────────────────────────────────────────────────────
+STT_LANGUAGE=$(jq -r '.lumi.sttLanguage // "id"' "$SETTINGS" 2>/dev/null)
+STT_PROMPT=$(jq -r '.lumi.sttPrompt // "Percakapan dengan asisten AI bernama Lumi tentang Linux, teknologi, dan kehidupan sehari-hari."' "$SETTINGS" 2>/dev/null)
+
 if [[ "$ACTION" == "start" ]]; then
-    # Stop existing silence monitor
+    # Hentikan silence monitor sebelumnya
     if [ -f "/tmp/stewart_silence.pid" ]; then
-        kill -9 $(cat "/tmp/stewart_silence.pid") 2>/dev/null
+        kill -9 $(cat "/tmp/stewart_silence.pid") 2>/dev/null || true
         rm -f "/tmp/stewart_silence.pid"
     fi
 
-    # Record audio at 16kHz, mono, 16-bit (ideal for Whisper)
+    # Rekam audio: 16kHz mono 16-bit (optimal untuk Whisper)
     arecord -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
     echo $! > "$PID_FILE"
-    
-    # Start silence monitor in background
+
+    # Jalankan silence monitor di background
     bash "$SCRIPT_DIR/silence_monitor.sh" &
     echo $! > "/tmp/stewart_silence.pid"
-    
+
     echo "Recording started"
 
 elif [[ "$ACTION" == "stop" ]]; then
+    # Hentikan silence monitor
     if [ -f "/tmp/stewart_silence.pid" ]; then
-        kill -9 $(cat "/tmp/stewart_silence.pid") 2>/dev/null
+        kill -9 $(cat "/tmp/stewart_silence.pid") 2>/dev/null || true
         rm -f "/tmp/stewart_silence.pid"
     fi
 
+    # Hentikan rekaman
     if [ -f "$PID_FILE" ]; then
-        kill -2 $(cat "$PID_FILE") 2>/dev/null
+        kill -2 $(cat "$PID_FILE") 2>/dev/null || true
+        sleep 0.3
         rm -f "$PID_FILE"
     fi
-    
-    if [ ! -f "$AUDIO_FILE" ]; then
-        echo "Error: Audio file not found."
-        exit 1
+
+    if [ ! -f "$AUDIO_FILE" ] || [ $(stat -c %s "$AUDIO_FILE" 2>/dev/null || echo 0) -lt 4096 ]; then
+        echo ""
+        exit 0
     fi
 
-    # Noise Reduction: Apply highpass filter and afftdn (noise reduction) ~50%
+    # ── Noise Reduction ────────────────────────────────────────────────────────
+    # highpass: hapus frekuensi rendah (AC hum, kipas)
+    # afftdn: noise reduction berbasis FFT
+    # agate: noise gate, hapus sinyal di bawah threshold
     CLEANED_AUDIO="/tmp/stewart_mic_clean.wav"
-    ffmpeg -y -i "$AUDIO_FILE" -af "highpass=f=200,afftdn=nf=-25" "$CLEANED_AUDIO" >/dev/null 2>&1
+    ffmpeg -y -i "$AUDIO_FILE" \
+        -af "highpass=f=80,afftdn=nf=-25,agate=threshold=-45dB:ratio=2" \
+        "$CLEANED_AUDIO" >/dev/null 2>&1
 
-    if [ ! -f "$CLEANED_AUDIO" ]; then
-        CLEANED_AUDIO="$AUDIO_FILE" # Fallback if ffmpeg fails
+    if [ ! -f "$CLEANED_AUDIO" ] || [ $(stat -c %s "$CLEANED_AUDIO") -lt 44 ]; then
+        CLEANED_AUDIO="$AUDIO_FILE"
     fi
-    
+
     if [ -z "$GROQ_API_KEY" ]; then
-        GROQ_API_KEY=$(jq -r '.lumi.apiKey // empty' ~/.config/hypr/settings.json 2>/dev/null)
+        GROQ_API_KEY=$(jq -r '.lumi.apiKey // empty' "$SETTINGS" 2>/dev/null)
     fi
 
     IFS=',' read -ra KEYS <<< "$GROQ_API_KEY"
     if [ ${#KEYS[@]} -eq 0 ]; then
-        echo "Error: GROQ_API_KEY is not set."
+        echo ""
         exit 1
     fi
 
@@ -69,23 +81,34 @@ elif [[ "$ACTION" == "stop" ]]; then
         CURRENT_KEY=$(echo "$CURRENT_KEY" | xargs)
         if [ -z "$CURRENT_KEY" ]; then continue; fi
 
-        # Transcribe using Groq Whisper API
+        # ── Panggil Groq Whisper dengan language hint + prompt konteks ──────────
+        # language: paksa ke bahasa Indonesia → akurasi jauh lebih tinggi
+        # prompt: konteks singkat agar nama, istilah teknis, dll. lebih akurat
         RESPONSE=$(curl -s --request POST \
           --url https://api.groq.com/openai/v1/audio/transcriptions \
           --header "Authorization: Bearer $CURRENT_KEY" \
           --header "Content-Type: multipart/form-data" \
           --form file="@$CLEANED_AUDIO" \
-          --form model="whisper-large-v3-turbo")
-          
+          --form model="whisper-large-v3-turbo" \
+          --form language="$STT_LANGUAGE" \
+          --form prompt="$STT_PROMPT" \
+          --form response_format="json")
+
         ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
         if [ -n "$ERR" ]; then
             continue
         fi
 
-        TEXT=$(echo "$RESPONSE" | jq -r '.text // empty')
-        if [ -n "$TEXT" ] && [ "$TEXT" != "null" ]; then
-            SUCCESS=true
-            break
+        TEXT=$(echo "$RESPONSE" | jq -r '.text // empty' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+
+        # Filter halusinasi umum Whisper (muncul saat rekaman terlalu hening)
+        if [ -n "$TEXT" ] && [ "$TEXT" != "null" ] && [ ${#TEXT} -gt 2 ]; then
+            if [[ "$TEXT" =~ ^[[:space:]]*([Tt]hank[s]?[[:space:]]for[[:space:]]watching[.!]?|[Ss]ubscribe[.!]?|[Mm]usic[[:space:]]playing)[[:space:]]*$ ]]; then
+                echo ""
+            else
+                SUCCESS=true
+                break
+            fi
         fi
     done
 

@@ -9,6 +9,7 @@ Rectangle {
 
     property string speechState: "idle"
     property string responseText: ""
+    property string sttTranscript: ""
 
     // Colors — wired to Matugen via parent or defaults
     property color primaryColor:            "#4DB6AC"
@@ -31,6 +32,7 @@ Rectangle {
         enterAnim.start()
         speechState = "listening"
         responseText = ""
+        sttTranscript = ""
         LumiService.startListening()
     }
 
@@ -91,9 +93,21 @@ Rectangle {
             // onClicked dihapus karena ini hanya indikator
         }
 
-        Item { width: 1; height: 20 }
+        Item { width: 1; height: 14 }
 
-        // Response text dipindah ke bawah WaveIcon
+        // Teks transkripsi STT — tampil setelah user selesai bicara
+        SttTranscript {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 320
+            transcript: root.sttTranscript
+            speechState: root.speechState
+            textColor: root.onBackgroundColor
+            cursorColor: root.primaryColor
+        }
+
+        Item { width: 1; height: 8 }
+
+        // Response text
         ResponseDisplay {
             anchors.horizontalCenter: parent.horizontalCenter
             width: 360
@@ -131,7 +145,10 @@ Rectangle {
     // IPC Handlers
     Connections {
         target: LumiService
-        function onSttComplete(text) { root.speechState = "thinking" }
+        function onSttComplete(text) {
+            root.sttTranscript = text
+            root.speechState = "thinking"
+        }
         function onStreamStart() { root.speechState = "speaking" }
         function onGroqComplete(text) {
             root.responseText = text
