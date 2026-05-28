@@ -175,11 +175,34 @@ Item {
         return [{ role: "system", content: sysPrompt }].concat(selectedMessages)
     }
 
+    function saveChatHistory() {
+        let arr = []
+        for (let i = 0; i < messagesModel.count; i++) {
+            let msg = messagesModel.get(i)
+            // Hanya simpan pesan user dan assistant yang bukan log internal
+            if ((msg.role === "user" || msg.role === "assistant") &&
+                !msg.content.startsWith("🟢") && !msg.content.startsWith("⚠️")) {
+                arr.push({ role: msg.role, content: msg.content })
+            }
+        }
+        Quickshell.execDetached(["bash", "-c", "printf '%s' '" + JSON.stringify(arr).replace(/'/g, "'\\''") + "' > '" + scriptDir + "/history.json'"])
+    }
+
     function sendMessage(text) {
         if (!text || text.trim() === "" || isThinking || !hasApiKey) return
         let trimmed = text.trim()
+
+        if (trimmed === "/clear") {
+            messagesModel.clear()
+            saveChatHistory()
+            messagesModel.append({ role: "assistant", content: "🟢 Chat history cleared. How can I help you today?" })
+            msgInput.text = ""
+            return
+        }
+
         messagesModel.append({ role: "user", content: trimmed })
         msgInput.text = ""
+        saveChatHistory()
         sendToGroq(buildApiMessages())
     }
 
@@ -205,8 +228,7 @@ Item {
         target: Config
         function onDataReadyChanged() {
             if (Config.dataReady && Config.lumiApiKey.length > 0) {
-                messagesModel.append({ role: "assistant",
-                    content: "🟢 Hello! I'm Lumi. Ask me anything about your system or anything else!" })
+                loadHistoryProc.running = true
             }
         }
     }
@@ -228,6 +250,7 @@ Item {
                     if (typeof LumiService !== "undefined") LumiService.groqError(errMsg)
                 } else if (reply !== "") {
                     messagesModel.append({ role: "assistant", content: reply })
+                    saveChatHistory()
                     if (typeof LumiService !== "undefined") LumiService._handleGroqComplete(reply)
                 }
                 Qt.callLater(() => { chatFlickable.scrollToBottom() })
