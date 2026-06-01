@@ -11,6 +11,10 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
     source "$SCRIPT_DIR/.env"
 fi
 
+log_time() {
+    echo "$(date +'%H:%M:%S.%3N') - [STT] $1" >> /tmp/lumi_timing_debug.log
+}
+
 ACTION="$1"
 
 # ── Baca config ───────────────────────────────────────────────────────────────
@@ -32,6 +36,7 @@ if [[ "$ACTION" == "start" ]]; then
     bash "$SCRIPT_DIR/silence_monitor.sh" &
     echo $! > "/tmp/stewart_silence.pid"
 
+    log_time "Recording started"
     echo "Recording started"
 
 elif [[ "$ACTION" == "stop" ]]; then
@@ -49,18 +54,24 @@ elif [[ "$ACTION" == "stop" ]]; then
     fi
 
     if [ ! -f "$AUDIO_FILE" ] || [ $(stat -c %s "$AUDIO_FILE" 2>/dev/null || echo 0) -lt 4096 ]; then
+        log_time "Recording too short/empty, exiting"
         echo ""
         exit 0
     fi
 
+    log_time "Recording stopped, starting noise reduction"
+
     # ── Noise Reduction ────────────────────────────────────────────────────────
     # highpass: hapus frekuensi rendah (AC hum, kipas)
     # afftdn: noise reduction berbasis FFT
+    # loudnorm: auto audio gain, memastikan suara pelan tetap terdengar jelas
     # agate: noise gate, hapus sinyal di bawah threshold
     CLEANED_AUDIO="/tmp/stewart_mic_clean.wav"
     ffmpeg -y -i "$AUDIO_FILE" \
-        -af "highpass=f=80,afftdn=nf=-25,agate=threshold=-45dB:ratio=2" \
+        -af "highpass=f=80,afftdn=nf=-25,loudnorm,agate=threshold=-45dB:ratio=2" \
         "$CLEANED_AUDIO" >/dev/null 2>&1
+    
+    log_time "Noise reduction finished, preparing API call"
 
     if [ ! -f "$CLEANED_AUDIO" ] || [ $(stat -c %s "$CLEANED_AUDIO") -lt 44 ]; then
         CLEANED_AUDIO="$AUDIO_FILE"
@@ -84,6 +95,7 @@ elif [[ "$ACTION" == "stop" ]]; then
         # ── Panggil Groq Whisper dengan language hint + prompt konteks ──────────
         # language: paksa ke bahasa Indonesia → akurasi jauh lebih tinggi
         # prompt: konteks singkat agar nama, istilah teknis, dll. lebih akurat
+        log_time "Sending request to Groq Whisper API"
         RESPONSE=$(curl -s --request POST \
           --url https://api.groq.com/openai/v1/audio/transcriptions \
           --header "Authorization: Bearer $CURRENT_KEY" \
@@ -93,6 +105,7 @@ elif [[ "$ACTION" == "stop" ]]; then
           --form language="$STT_LANGUAGE" \
           --form prompt="$STT_PROMPT" \
           --form response_format="json")
+        log_time "Received response from Groq Whisper API"
 
         ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
         if [ -n "$ERR" ]; then
@@ -103,7 +116,7 @@ elif [[ "$ACTION" == "stop" ]]; then
 
         # Filter halusinasi umum Whisper (muncul saat rekaman terlalu hening)
         if [ -n "$TEXT" ] && [ "$TEXT" != "null" ] && [ ${#TEXT} -gt 2 ]; then
-            if [[ "$TEXT" =~ ^[[:space:]]*([Tt]hank[s]?[[:space:]]for[[:space:]]watching[.!]?|[Ss]ubscribe[.!]?|[Mm]usic[[:space:]]playing)[[:space:]]*$ ]]; then
+            if [[ "$TEXT" =~ ^[[:space:]]*([Tt]hank[s]?[[:space:]]for[[:space:]]watching[.!]?|[Ss]ubscribe[.!]?|[Mm]usic[[:space:]]playing|[Tt]erima[[:space:]]kasih[.!]?|[Tt]erima[[:space:]]kasih[[:space:]]sudah[[:space:]]menonton[.!]?)[[:space:]]*$ ]]; then
                 echo ""
             else
                 SUCCESS=true
@@ -113,9 +126,13 @@ elif [[ "$ACTION" == "stop" ]]; then
     done
 
     if [ "$SUCCESS" = true ]; then
+        log_time "STT Success, sending IPC to quickshell"
         echo "$TEXT"
+        quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi sttComplete "$TEXT" 2>/dev/null || true
     else
+        log_time "STT Failed or empty"
         echo ""
+        quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi sttComplete "" 2>/dev/null || true
     fi
 else
     echo "Usage: $0 [start|stop]"

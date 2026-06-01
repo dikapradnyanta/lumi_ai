@@ -21,7 +21,8 @@ echo "📢  INSTRUKSI:"
 echo "    Diam selama $RECORD_DURATION detik (jangan bicara)."
 echo "    Script akan merekam ambient noise ruanganmu."
 echo ""
-read -rp "    Tekan ENTER untuk mulai merekam..." _
+echo "    Memulai kalibrasi otomatis dalam 2 detik..."
+sleep 2
 
 echo ""
 echo "🎙️  Merekam ambient noise ($RECORD_DURATION detik)..."
@@ -84,14 +85,15 @@ if [ "$APPLY" = "--apply" ]; then
         exit 1
     fi
 
-    # Backup dulu
-    cp "$SILENCE_MONITOR" "${SILENCE_MONITOR}.calibrate.bak"
-
-    # Update SILENCE_THRESHOLD di silence_monitor.sh
-    sed -i "s|SILENCE_THRESHOLD=\"[^\"]*\"|SILENCE_THRESHOLD=\"${THRESHOLD}dB\"|g" "$SILENCE_MONITOR"
-
-    echo "✅  Threshold berhasil diupdate ke ${THRESHOLD}dB di silence_monitor.sh"
-    echo "    Backup: ${SILENCE_MONITOR}.calibrate.bak"
+    SETTINGS="$HOME/.config/hypr/settings.json"
+    if [ -f "$SETTINGS" ]; then
+        TMP_SETTINGS="/tmp/lumi_settings_tmp.json"
+        jq ".lumi.silenceThreshold = \"${THRESHOLD}dB\"" "$SETTINGS" > "$TMP_SETTINGS" && mv "$TMP_SETTINGS" "$SETTINGS"
+        echo "✅  Threshold berhasil diupdate ke ${THRESHOLD}dB di settings.json"
+    else
+        echo "❌  File settings.json tidak ditemukan!"
+        exit 1
+    fi
 else
     echo "ℹ️   Dry-run mode. Untuk menerapkan, jalankan:"
     echo "    bash calibrate_silence.sh --apply"

@@ -25,6 +25,7 @@ done
 
 # ── Adaptive calibration: ukur noise lantai selama 0.5 detik pertama ─────────
 # Jika ambient noise tinggi (ruangan bising), naikan threshold secara otomatis
+sleep 0.4 # Tunggu sebentar agar file wav terisi cukup data
 AMBIENT_LEVEL=$(ffmpeg -loglevel error \
     -t 0.5 -i "$AUDIO_FILE" \
     -af "volumedetect" -f null - 2>&1 | \
@@ -54,8 +55,9 @@ SAFETY_PID=$!
 echo "[silence_monitor] Threshold: $SILENCE_THRESHOLD, Max silence: ${SILENCE_DURATION}s" >&2
 
 # ── Monitor loop dengan silencedetect ────────────────────────────────────────
-ffmpeg -loglevel info \
-    -i "$AUDIO_FILE" \
+# Gunakan tail -f agar ffmpeg tidak langsung exit saat mencapai EOF sementara dari arecord
+tail -c +0 -f "$AUDIO_FILE" 2>/dev/null | ffmpeg -loglevel info \
+    -i pipe:0 \
     -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" \
     -f null - 2>&1 | \
 while IFS= read -r line; do

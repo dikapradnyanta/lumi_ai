@@ -72,6 +72,18 @@ Rectangle {
                 containerColor: root.primaryContainerColor
                 glowColor: root.tertiaryColor
                 glowRadius: root.targetGlowRadius
+                speechState: root.speechState
+
+                audioLevel: {
+                    if (root.speechState === "listening") {
+                        var levels = waveIcon.micLevels
+                        var sum = 0
+                        for (var i = 0; i < levels.length; i++) sum += levels[i]
+                        return Math.min(1.0, (sum / levels.length) * 1.5)
+                    }
+                    return root.speechState === "speaking" ? 0.4 + Math.random() * 0.3 : 0.0
+                }
+
                 Behavior on glowRadius { NumberAnimation { duration: 400; easing.type: Easing.InOutSine } }
             }
         }
@@ -88,6 +100,7 @@ Rectangle {
 
         // Wave icon (Hanya visualizer input mic)
         WaveIcon {
+            id: waveIcon
             anchors.horizontalCenter: parent.horizontalCenter
             speechState: root.speechState
             primaryColor: root.primaryColor

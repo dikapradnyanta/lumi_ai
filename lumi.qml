@@ -260,22 +260,41 @@ Item {
         }
     }
 
+    Connections {
+        target: typeof LumiService !== "undefined" ? LumiService : null
+        function onSttComplete(text) {
+            root.isRecording = false
+            let trimmed = text.trim()
+            if (trimmed !== "" && trimmed !== "null") {
+                speechOrb.sttTranscript = trimmed
+                msgInput.text = trimmed
+                msgInput.forceActiveFocus()
+                root.sendMessage(trimmed)
+            } else {
+                speechOrb.close()
+            }
+        }
+
+        function onGroqComplete(text) {
+            root.isThinking = false
+            let reply = (text || "").trim()
+            if (reply !== "") {
+                let lastMsg = messagesModel.count > 0 ? messagesModel.get(messagesModel.count - 1).content : ""
+                if (lastMsg !== reply) {
+                    messagesModel.append({ role: "assistant", content: reply })
+                    saveChatHistory()
+                    Qt.callLater(() => { chatFlickable.scrollToBottom() })
+                }
+            }
+        }
+    }
+
     Process {
         id: sttProcess
         running: false
         stdout: StdioCollector {
             onStreamFinished: {
                 root.isRecording = false
-                let text = (this.text || "").trim()
-                if (text !== "" && text !== "null") {
-                    // Tampilkan teks transkripsi di SpeechOrb sebelum kirim ke Groq
-                    speechOrb.sttTranscript = text
-                    msgInput.text = text
-                    msgInput.forceActiveFocus()
-                    root.sendMessage(text) // Auto-send for seamless voice
-                } else {
-                    speechOrb.close()
-                }
             }
         }
     }

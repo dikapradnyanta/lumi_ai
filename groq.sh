@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+log_time() {
+    echo "$(date +'%H:%M:%S.%3N') - [GROQ] $1" >> /tmp/lumi_timing_debug.log
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 SETTINGS="$HOME/.config/hypr/settings.json"
@@ -56,6 +60,8 @@ else
     echo "[Lumi Routing] ${CONTEXT_LENGTH} char >= ${THRESHOLD} → $LARGE_MODEL" > /tmp/lumi_routing.log
 fi
 
+log_time "Model decided: $MODEL"
+
 # ── Build payload dengan parameter finetuning ──────────────────────────────────
 DYNAMIC_CONTEXT=$(python3 "$HOME/.config/hypr/scripts/quickshell/lumi/get_context.py" 2>/dev/null)
 
@@ -81,8 +87,10 @@ for CURRENT_KEY in "${KEYS[@]}"; do
     [ -z "$CURRENT_KEY" ] && continue
 
     if [ "$AUTO_SPEAK" = "true" ]; then
+        log_time "Sending streamStart IPC"
         quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi streamStart
 
+        log_time "Starting curl to Groq Chat API (streaming)"
         FULL_TEXT=$(curl -s --no-buffer \
             -X POST "https://api.groq.com/openai/v1/chat/completions" \
             -H "Authorization: Bearer $CURRENT_KEY" \
@@ -91,14 +99,19 @@ for CURRENT_KEY in "${KEYS[@]}"; do
             --max-time 30 \
             -d "$PAYLOAD" \
         | python3 "$SCRIPT_DIR/stream_tts.py" 2>/tmp/lumi_tts_err.log)
+        
+        log_time "curl and stream_tts.py finished"
 
         EXIT_CODE=$?
         if [ $EXIT_CODE -ne 0 ]; then
+            log_time "stream_tts.py exited with error $EXIT_CODE"
             cat /tmp/lumi_tts_err.log >&2
             continue
         fi
 
         if [ -n "$FULL_TEXT" ]; then
+            log_time "Sending groqComplete and ttsComplete IPC"
+            echo "$FULL_TEXT"
             quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi groqComplete "$FULL_TEXT"
             quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi ttsComplete
             SUCCESS=true
