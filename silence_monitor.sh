@@ -7,7 +7,7 @@ MONITOR_PID_FILE="/tmp/stewart_silence.pid"
 
 # ── Konfigurasi (bisa di-override dari settings.json) ─────────────────────────
 SILENCE_THRESHOLD=$(jq -r '.lumi.silenceThreshold // "-38dB"' "$SETTINGS" 2>/dev/null || echo "-38dB")
-SILENCE_DURATION=$(jq -r '.lumi.silenceDuration // 2.0' "$SETTINGS" 2>/dev/null || echo "2.0")
+SILENCE_DURATION=$(jq -r '.lumi.silenceDuration // 1.2' "$SETTINGS" 2>/dev/null || echo "1.2")
 MAX_RECORD_TIME=$(jq -r '.lumi.maxRecordTime // 45' "$SETTINGS" 2>/dev/null || echo "45")
 
 echo $$ > "$MONITOR_PID_FILE"
