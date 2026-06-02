@@ -741,22 +741,36 @@ Item {
                 anchors.margins: 10
                 spacing: 8
 
-                // Mic Button (Replaced by WaveIcon)
-                WaveIcon {
+                // Mic Button
+                Rectangle {
                     width: 38; height: 38
-                    enabled: !root.isThinking
-                    speechState: root.isRecording ? "listening" : "idle"
-                    primaryColor: root.cOverlay
-                    speakingColor: root.cRed
-                    onIconClicked: {
-                        if (!root.isRecording) {
-                            root.isRecording = true
-                            root.speechMode = true
-                            speechOrb.open()
-                            Quickshell.execDetached(["bash", root.scriptDir + "/stt.sh", "start"])
-                        } else {
-                            sttProcess.command = ["bash", root.scriptDir + "/stt.sh", "stop"]
-                            sttProcess.running = true
+                    radius: 8
+                    color: root.isRecording ? Qt.alpha(root.cRed, 0.2) : Qt.alpha(root.cOverlay, 0.1)
+                    border.color: root.isRecording ? root.cRed : Qt.alpha(root.cOverlay, 0.3)
+                    border.width: 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "󰍬"
+                        font.family: "Iosevka Nerd Font"
+                        font.pixelSize: 18
+                        color: root.isRecording ? root.cRed : root.cOverlay
+                    }
+                    
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !root.isThinking
+                        onClicked: {
+                            if (!root.isRecording) {
+                                root.isRecording = true
+                                root.speechMode = true
+                                speechOrb.open()
+                                Quickshell.execDetached(["bash", root.scriptDir + "/stt.sh", "start"])
+                            } else {
+                                sttProcess.command = ["bash", root.scriptDir + "/stt.sh", "stop"]
+                                sttProcess.running = true
+                            }
                         }
                     }
                 }

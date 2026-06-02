@@ -1,6 +1,5 @@
 module speech
 SpeechOrb 1.0 SpeechOrb.qml
-WaveIcon 1.0 WaveIcon.qml
 ResponseDisplay 1.0 ResponseDisplay.qml
 OrbCore 1.0 OrbCore.qml
 RingSystem 1.0 RingSystem.qml
