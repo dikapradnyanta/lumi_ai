@@ -12,6 +12,7 @@ Rectangle {
     property string speechState: "idle"
     property string responseText: ""
     property string sttTranscript: ""
+    property bool isAborting: false
 
     // Colors — wired to Matugen via parent or defaults
     property color primaryColor:            "#4DB6AC"
@@ -165,6 +166,22 @@ Rectangle {
                     }
                 }
             }
+            
+            Text {
+                text: "Menganalisis audio..."
+                color: root.primaryColor
+                font.family: "Outfit"
+                font.pixelSize: 13
+                font.weight: Font.Medium
+                anchors.verticalCenter: parent.verticalCenter
+                
+                SequentialAnimation on opacity {
+                    loops: Animation.Infinite
+                    running: root.speechState === "thinking"
+                    NumberAnimation { from: 0.3; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1.0; to: 0.3; duration: 800; easing.type: Easing.InOutSine }
+                }
+            }
         }
 
         Item { width: 1; height: 10 }
@@ -178,6 +195,65 @@ Rectangle {
             textColor: root.onBackgroundColor
             bgColor: root.surfaceVariantColor
             borderColor: root.primaryColor
+        }
+        
+        Item { width: 1; height: 24 }
+
+        // ── Manual Control Buttons (Listening State Only) ───────────────
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 20
+            visible: root.speechState === "listening"
+            opacity: root.speechState === "listening" ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 220 } }
+
+            // Cancel Button
+            Rectangle {
+                width: 120; height: 36; radius: 18
+                color: cancelMa.containsMouse ? Qt.rgba(root.tertiaryColor.r, root.tertiaryColor.g, root.tertiaryColor.b, 0.2) : "transparent"
+                border.color: Qt.rgba(root.tertiaryColor.r, root.tertiaryColor.g, root.tertiaryColor.b, 0.5)
+                border.width: 1
+                Behavior on color { ColorAnimation { duration: 150 } }
+                
+                Row {
+                    anchors.centerIn: parent; spacing: 6
+                    Text { text: "󰅖"; font.family: "Iosevka Nerd Font"; color: root.tertiaryColor; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "Cancel"; font.family: "Outfit"; color: root.tertiaryColor; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                MouseArea {
+                    id: cancelMa; anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        root.isAborting = true
+                        root.speechState = "idle"
+                        Quickshell.execDetached(["bash", "/home/dikapradnyanta/.config/hypr/scripts/quickshell/lumi/stt.sh", "abort"])
+                        LumiService.cancelListening()
+                        root.close()
+                    }
+                }
+            }
+
+            // Answer Now Button
+            Rectangle {
+                width: 140; height: 36; radius: 18
+                color: answerMa.containsMouse ? root.primaryContainerColor : root.primaryColor
+                Behavior on color { ColorAnimation { duration: 150 } }
+                
+                Row {
+                    anchors.centerIn: parent; spacing: 6
+                    Text { text: "󰔡"; font.family: "Iosevka Nerd Font"; color: root.onBackgroundColor; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "Answer Now"; font.family: "Outfit"; font.weight: Font.Medium; color: root.onBackgroundColor; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                MouseArea {
+                    id: answerMa; anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        Quickshell.execDetached(["bash", "/home/dikapradnyanta/.config/hypr/scripts/quickshell/lumi/stt.sh", "stop"])
+                    }
+                }
+            }
         }
     }
 
@@ -208,10 +284,16 @@ Rectangle {
     Connections {
         target: LumiService
         function onSttComplete(text) {
+            if (root.isAborting) {
+                root.isAborting = false
+                return
+            }
             root.sttTranscript = text
             root.speechState = "thinking"
         }
-        function onStreamStart() { root.speechState = "speaking" }
+        function onStreamStart() { 
+            if (!root.isAborting) root.speechState = "speaking" 
+        }
         function onGroqComplete(text) {
             root.responseText = text
             root.speechState = "speaking"

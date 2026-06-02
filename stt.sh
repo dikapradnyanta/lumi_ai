@@ -39,6 +39,24 @@ if [[ "$ACTION" == "start" ]]; then
     log_time "Recording started"
     echo "Recording started"
 
+elif [[ "$ACTION" == "abort" ]]; then
+    # Hentikan silence monitor
+    if [ -f "/tmp/stewart_silence.pid" ]; then
+        kill -9 $(cat "/tmp/stewart_silence.pid") 2>/dev/null || true
+        rm -f "/tmp/stewart_silence.pid"
+    fi
+
+    # Hentikan rekaman tapi langsung keluar (tidak dikirim ke API)
+    if [ -f "$PID_FILE" ]; then
+        kill -2 $(cat "$PID_FILE") 2>/dev/null || true
+        sleep 0.3
+        rm -f "$PID_FILE"
+    fi
+    
+    log_time "Recording aborted by user"
+    echo "Aborted"
+    exit 0
+
 elif [[ "$ACTION" == "stop" ]]; then
     # Hentikan silence monitor
     if [ -f "/tmp/stewart_silence.pid" ]; then
