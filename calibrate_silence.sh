@@ -58,14 +58,14 @@ echo ""
 # Hitung threshold optimal: mean + 15dB (standar rekomendasi)
 THRESHOLD=$(echo "$MEAN_VOLUME + 15" | bc)
 
-# Clamp: jangan terlalu sensitif (-30) atau terlalu longgar (-50)
+# Clamp: jangan terlalu longgar (-28) atau terlalu ketat (-42)
 THRESHOLD_INT=${THRESHOLD%.*}
-if [ "$THRESHOLD_INT" -gt -30 ]; then
-    THRESHOLD="-30"
-    echo "⚠️   Threshold diklamp ke -30dB (noise ruangan terlalu tinggi)"
-elif [ "$THRESHOLD_INT" -lt -50 ]; then
-    THRESHOLD="-50"
-    echo "⚠️   Threshold diklamp ke -50dB (ruangan sangat senyap)"
+if [ "$THRESHOLD_INT" -gt -28 ]; then
+    THRESHOLD="-28"
+    echo "⚠️   Threshold diklamp ke -28dB (noise ruangan terlalu tinggi)"
+elif [ "$THRESHOLD_INT" -lt -42 ]; then
+    THRESHOLD="-42"
+    echo "⚠️   Threshold diklamp ke -42dB (ruangan sangat senyap, dinaikkan agar stabil)"
 fi
 
 echo "╔══════════════════════════════════════════════════════╗"
