@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Effects
+import Quickshell.Io
 import "."
 import "../../"
 
@@ -25,6 +26,36 @@ Rectangle {
     property real targetGlowRadius:
         speechState === "listening" ? 50 :
         speechState === "speaking"  ? 50 : 35
+
+    property var micLevels: [0.08, 0.08, 0.08, 0.08, 0.08]
+
+    Process {
+        id: micProc
+        running: false
+        command: ["python3", "/home/dikapradnyanta/.config/hypr/scripts/quickshell/lumi/mic_level.py"]
+        stdout: SplitParser {
+            onRead: function(line) {
+                var parts = line.trim().split(" ")
+                if (parts.length === 5) {
+                    var levels = []
+                    for (var i = 0; i < 5; i++) {
+                        var v = parseFloat(parts[i])
+                        levels.push(isNaN(v) ? 0.08 : Math.max(0.08, Math.min(1.0, v)))
+                    }
+                    root.micLevels = levels
+                }
+            }
+        }
+    }
+
+    onSpeechStateChanged: {
+        if (speechState === "listening") {
+            micProc.running = true
+        } else {
+            micProc.running = false
+            root.micLevels = [0.08, 0.08, 0.08, 0.08, 0.08]
+        }
+    }
 
     // Enter animation
     opacity: 0; scale: 0.9
@@ -77,13 +108,16 @@ Rectangle {
 
                 audioLevel: {
                     if (root.speechState === "listening") {
-                        var levels = waveIcon.micLevels
+                        var levels = root.micLevels
                         var sum = 0
                         for (var i = 0; i < levels.length; i++) sum += levels[i]
                         return Math.min(1.0, (sum / levels.length) * 1.5)
                     }
                     return root.speechState === "speaking" ? 0.4 + Math.random() * 0.3 : 0.0
                 }
+
+                // Pass the full array to OrbCore to drive plasma rings
+                micLevels: root.micLevels
 
                 Behavior on glowRadius { NumberAnimation { duration: 400; easing.type: Easing.InOutSine } }
             }
@@ -98,18 +132,6 @@ Rectangle {
         }
 
         Item { width: 1; height: 16 }
-
-        // Wave icon (Hanya visualizer input mic)
-        WaveIcon {
-            id: waveIcon
-            anchors.horizontalCenter: parent.horizontalCenter
-            speechState: root.speechState
-            primaryColor: root.primaryColor
-            speakingColor: root.tertiaryColor
-            // onClicked dihapus karena ini hanya indikator
-        }
-
-        Item { width: 1; height: 14 }
 
         // Teks transkripsi STT — tampil setelah user selesai bicara
         SttTranscript {

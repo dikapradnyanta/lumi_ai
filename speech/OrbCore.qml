@@ -1,65 +1,77 @@
 import QtQuick
 import QtQuick.Effects
 
-// OrbCore.qml — v2 (voiceorb-inspired)
-// Improvements over v1:
-//   • Organic blob shape via multi-octave trig noise (mirrors voiceorb's simplex)
-//   • Fresnel rim ring — glows brighter with audioLevel
-//   • Audio-reactive displacement, shimmer, and ambient glow
-//   • Specular highlight + inner edge darkening for depth
-//
-// New property:
-//   audioLevel : real  — 0.0–1.0, bind from WaveIcon's currentLevel
-//
-// Wiring in SpeechOrb.qml:
-//   WaveIcon { id: waveIcon ... }
-//   OrbCore  { audioLevel: waveIcon.currentLevel ... }
-
 Item {
     id: root
-    width: 140
-    height: 140
+    width: 260
+    height: 260
 
-    // ── Public API (backward-compatible + new audioLevel) ────────
-    property real glowRadius: 35
+    // ── Public API ────────
+    property real glowRadius: 50
     property real orbScale: 1.0
     property color primaryColor: "#4DB6AC"
     property color containerColor: "#00695C"
     property color glowColor: "#26A69A"
-    property real audioLevel: 0.0   // 0.0–1.0 — drives noise intensity & glow
+    property real audioLevel: 0.0   
+    property var micLevels: [0.08, 0.08, 0.08, 0.08, 0.08]
     property string speechState: "idle"
 
-    // ── Animation time ───────────────────────────────────────────
+    property var _animMicLevels: [0.08, 0.08, 0.08, 0.08, 0.08]
+
+    // AI voice animation array
+    property var aiLevels: [0.1, 0.1, 0.1, 0.1, 0.1]
+    Timer {
+        interval: 120
+        running: root.speechState === "speaking"
+        repeat: true
+        onTriggered: {
+            root.aiLevels = [
+                0.2 + Math.random() * 0.6,
+                0.3 + Math.random() * 0.7,
+                0.4 + Math.random() * 0.6,
+                0.3 + Math.random() * 0.7,
+                0.2 + Math.random() * 0.6
+            ]
+        }
+    }
+
+    Timer {
+        interval: 16
+        running: true
+        repeat: true
+        onTriggered: {
+            // Smoothly interpolate micLevels for fluid rendering
+            var targetLevels = root.speechState === "listening" ? root.micLevels : 
+                               root.speechState === "speaking" ? root.aiLevels : 
+                               [0.08, 0.08, 0.08, 0.08, 0.08];
+
+            var newAnim = []
+            for (var i = 0; i < 5; i++) {
+                // simple low pass filter for smoothness
+                newAnim.push(root._animMicLevels[i] + (targetLevels[i] - root._animMicLevels[i]) * 0.35)
+            }
+            root._animMicLevels = newAnim
+
+            orbCanvas.requestPaint()
+            glowCanvas.requestPaint()
+        }
+    }
+
     property real _t: 0.0
     NumberAnimation on _t {
         from: 0.0
-        to: 6283.185    // 2π × 1000, wraps cleanly
+        to: 6283.185
         duration: 60000
         loops: Animation.Infinite
         running: true
     }
 
-    // ── Repaint at ~30fps ────────────────────────────────────────
-    Timer {
-        interval: 33
-        running: true
-        repeat: true
-        onTriggered: {
-            glowCanvas.requestPaint()
-            orbCanvas.requestPaint()
-        }
-    }
-
-    // ── 1. Ambient glow halo (audio-breathing) ───────────────────
+    // ── 1. Ambient glow halo ───────────────────
     Canvas {
         id: glowCanvas
         anchors.centerIn: parent
-        width: parent.width + root.glowRadius * 2 + root.audioLevel * 28
+        width: parent.width + root.glowRadius * 2 + root.audioLevel * 60
         height: width
-
-        Behavior on width {
-            NumberAnimation { duration: 180; easing.type: Easing.OutSine }
-        }
 
         onPaint: {
             var ctx = getContext("2d")
@@ -68,9 +80,9 @@ Item {
             var r  = Math.min(width, height) / 2
             var al = root.audioLevel
 
-            var grad = ctx.createRadialGradient(cx, cy, r * 0.35, cx, cy, r)
-            grad.addColorStop(0.0,  Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.16 + al * 0.26).toString())
-            grad.addColorStop(0.55, Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.05).toString())
+            var grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r)
+            grad.addColorStop(0.0,  Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.25 + al * 0.4).toString())
+            grad.addColorStop(0.4,  Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.08).toString())
             grad.addColorStop(1.0,  "rgba(0,0,0,0)")
 
             ctx.beginPath()
@@ -80,45 +92,7 @@ Item {
         }
     }
 
-    // ── 2. Fresnel rim ring ──────────────────────────────────────
-    // Bright edge halo — intensifies with audio (voiceorb's fresnel effect)
-    Item {
-        id: fresnelRing
-        anchors.centerIn: parent
-        width: parent.width * root.orbScale + 8 + root.audioLevel * 8
-        height: width
-
-        Behavior on width {
-            NumberAnimation { duration: 100; easing.type: Easing.OutSine }
-        }
-
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            blurEnabled: true
-            blur: 0.35
-            blurMax: 14
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            radius: width / 2
-            color: "transparent"
-            antialiasing: true
-            border.color: Qt.rgba(
-                root.glowColor.r,
-                root.glowColor.g,
-                root.glowColor.b,
-                0.28 + root.audioLevel * 0.60
-            )
-            border.width: 1.5 + root.audioLevel * 3.0
-
-            Behavior on border.width {
-                NumberAnimation { duration: 80 }
-            }
-        }
-    }
-
-    // ── 3. Main orb — organic blob + specular + shimmer ─────────
+    // ── 2. The Plasma Waves (Siri-style) ─────────────────────────
     Canvas {
         id: orbCanvas
         anchors.centerIn: parent
@@ -126,99 +100,81 @@ Item {
         height: width
         antialiasing: true
         renderStrategy: Canvas.Threaded
-        renderTarget: Canvas.FramebufferObject
+
+        // Siri-like neon colors
+        readonly property var waveColors: [
+            root.primaryColor,
+            "#3399FF", // Blueish
+            "#CC33FF", // Purpleish
+            "#FF3399", // Pinkish
+            root.tertiaryColor
+        ]
 
         onPaint: {
             var ctx = getContext("2d")
             var w  = width, h = height
             var cx = w / 2, cy = h / 2
-            var r  = Math.min(w, h) / 2 - 1.5
-            var t  = root._t * 0.001   // slow, smooth time
-            var al = root.audioLevel
+            var baseR = Math.min(w, h) / 2 * 0.55 // Base radius of the inner sphere
+            var t  = root._t * 0.002
 
             ctx.clearRect(0, 0, w, h)
+            ctx.globalCompositeOperation = "lighter" // Additive blending for neon glow
 
-            // ── Blob shape helper ─────────────────────────────────
-            // Multi-octave trig noise — mirrors voiceorb's simplex displacement
-            var N        = 200
-            var displace = r * (0.055 + al * 0.16)
+            // Base glowing core sphere
+            ctx.beginPath()
+            ctx.arc(cx, cy, baseR * 0.85, 0, Math.PI * 2)
+            var coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 0.85)
+            coreGrad.addColorStop(0, Qt.rgba(1,1,1, 0.7).toString())
+            coreGrad.addColorStop(0.5, Qt.rgba(root.primaryColor.r, root.primaryColor.g, root.primaryColor.b, 0.4).toString())
+            coreGrad.addColorStop(1, "rgba(0,0,0,0)")
+            ctx.fillStyle = coreGrad
+            ctx.fill()
 
-            function blobPath() {
+            // Draw 5 overlapping plasma waves
+            for (var i = 0; i < 5; i++) {
+                var level = root._animMicLevels[i]
+                var waveAmpli = baseR * 1.1 * level // Amplitude driven by frequency band
+                
                 ctx.beginPath()
-                for (var i = 0; i <= N; i++) {
-                    var angle = (i / N) * Math.PI * 2
-                    var ca = Math.cos(angle), sa = Math.sin(angle)
+                // Use many segments for smooth curves
+                for (var angle = 0; angle <= Math.PI * 2 + 0.1; angle += 0.05) {
+                    // Complex trig noise to create swirling waves
+                    var noise = Math.sin(angle * (2 + i % 3) + t * (3.0 + i)) * waveAmpli
+                    var noise2 = Math.cos(angle * 3 - t * (2.0 + i*0.5)) * (waveAmpli * 0.5)
+                    
+                    var currentR = baseR + noise + noise2
+                    
+                    // Add slight 3D rotation wobble
+                    var wobbleX = Math.cos(t * 1.5 + i) * 15 * level
+                    var wobbleY = Math.sin(t * 1.5 - i) * 15 * level
 
-                    // Octave 1 — low-freq form
-                    var n1 = Math.sin(ca * 3.1 + t * 1.05) * Math.cos(sa * 2.6 + t * 0.80)
-                    // Octave 2 — mid-freq detail
-                    var n2 = Math.sin(ca * 7.3 - t * 0.55) * Math.sin(sa * 8.0 + t * 0.42)
-                    // Octave 3 — high-freq texture (boosted by audio)
-                    var n3 = Math.cos(ca * 13.4 + t * 1.75) * Math.cos(sa * 12.6 - t * 0.95)
-                    var n  = n1 * 0.50 + n2 * 0.30 + n3 * (0.20 + al * 0.15)
-
-                    var pr = r + n * displace
-                    if (i === 0) ctx.moveTo(cx + pr * ca, cy + pr * sa)
-                    else         ctx.lineTo(cx + pr * ca, cy + pr * sa)
+                    var x = cx + wobbleX + currentR * Math.cos(angle)
+                    var y = cy + wobbleY + currentR * Math.sin(angle)
+                    
+                    if (angle === 0) ctx.moveTo(x, y)
+                    else ctx.lineTo(x, y)
                 }
                 ctx.closePath()
+
+                // Stroke styling
+                ctx.lineWidth = 3.0 + level * 6.0
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                
+                // Add stroke glow via shadow
+                ctx.shadowColor = orbCanvas.waveColors[i]
+                ctx.shadowBlur = 12 + level * 15
+                
+                ctx.globalAlpha = 0.65 + level * 0.35
+                ctx.strokeStyle = orbCanvas.waveColors[i]
+                
+                ctx.stroke()
             }
-
-            // ── Pass 1: base gradient fill ────────────────────────
-            ctx.save()
-            blobPath()
-            var baseGrad = ctx.createRadialGradient(
-                cx - r * 0.22, cy - r * 0.24, r * 0.04,
-                cx + r * 0.08, cy + r * 0.08, r * 1.18
-            )
-            baseGrad.addColorStop(0.00, Qt.lighter(root.primaryColor, 1.50).toString())
-            baseGrad.addColorStop(0.42, root.primaryColor.toString())
-            baseGrad.addColorStop(1.00, root.containerColor.toString())
-            ctx.fillStyle = baseGrad
-            ctx.fill()
-            ctx.restore()
-
-            // ── Pass 2: inner layers clipped to blob ──────────────
-            ctx.save()
-            blobPath()
-            ctx.clip()
-
-            // Orbiting shimmer (audio-reactive, invisible when quiet)
-            if (al > 0.04) {
-                var shimmerGrad = ctx.createRadialGradient(
-                    cx + Math.cos(t * 2.1) * r * 0.32,
-                    cy + Math.sin(t * 1.65) * r * 0.32,
-                    0,
-                    cx, cy, r
-                )
-                shimmerGrad.addColorStop(0.0, Qt.rgba(
-                    root.glowColor.r, root.glowColor.g, root.glowColor.b,
-                    al * 0.42
-                ).toString())
-                shimmerGrad.addColorStop(0.7, "rgba(0,0,0,0)")
-                ctx.fillStyle = shimmerGrad
-                ctx.fillRect(0, 0, w, h)
-            }
-
-            // Specular highlight — top-left corner, glass feel
-            var specGrad = ctx.createRadialGradient(
-                cx - r * 0.28, cy - r * 0.30, 0,
-                cx - r * 0.08, cy - r * 0.10, r * 0.60
-            )
-            specGrad.addColorStop(0.00, "rgba(255,255,255,0.32)")
-            specGrad.addColorStop(0.55, "rgba(255,255,255,0.06)")
-            specGrad.addColorStop(1.00, "rgba(255,255,255,0.00)")
-            ctx.fillStyle = specGrad
-            ctx.fillRect(0, 0, w, h)
-
-            // Fresnel inner edge darkening — depth without shaders
-            var edgeGrad = ctx.createRadialGradient(cx, cy, r * 0.50, cx, cy, r * 1.05)
-            edgeGrad.addColorStop(0.0, "rgba(0,0,0,0.00)")
-            edgeGrad.addColorStop(1.0, "rgba(0,0,0,0.28)")
-            ctx.fillStyle = edgeGrad
-            ctx.fillRect(0, 0, w, h)
-
-            ctx.restore()
+            
+            // Reset global alpha and shadow for next frame to be safe
+            ctx.globalAlpha = 1.0
+            ctx.shadowColor = "transparent"
+            ctx.shadowBlur = 0
         }
     }
 }
