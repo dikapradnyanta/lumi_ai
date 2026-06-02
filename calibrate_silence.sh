@@ -77,12 +77,26 @@ printf "║  (rumus: mean + 15dB)                               ║\n"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# Terapkan ke silence_monitor.sh jika flag --apply
+# Terapkan ke settings.json jika flag --apply
 APPLY="${1:---dry-run}"
 if [ "$APPLY" = "--apply" ]; then
     if [ ! -f "$SILENCE_MONITOR" ]; then
         echo "❌  File $SILENCE_MONITOR tidak ditemukan!"
         exit 1
+    fi
+
+    # Interactive prompt
+    echo -n "✍️  Simpan threshold ${THRESHOLD}dB? (Tekan ENTER untuk simpan, atau ketik angka kustom contoh: -25): "
+    read -r USER_INPUT
+
+    if [ -n "$USER_INPUT" ]; then
+        # Cek jika input adalah angka (bisa ada tanda minus)
+        if [[ "$USER_INPUT" =~ ^-?[0-9]+$ ]]; then
+            THRESHOLD="$USER_INPUT"
+            echo "🔧  Menggunakan nilai kustom: ${THRESHOLD}dB"
+        else
+            echo "❌  Input tidak valid, tetap menggunakan hasil kalkulasi: ${THRESHOLD}dB"
+        fi
     fi
 
     SETTINGS="$HOME/.config/hypr/settings.json"

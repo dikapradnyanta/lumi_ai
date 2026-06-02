@@ -58,7 +58,7 @@ echo "[silence_monitor] Threshold: $SILENCE_THRESHOLD, Max silence: ${SILENCE_DU
 # Gunakan tail -f agar ffmpeg tidak langsung exit saat mencapai EOF sementara dari arecord
 tail -c +0 -f "$AUDIO_FILE" 2>/dev/null | ffmpeg -loglevel info \
     -i pipe:0 \
-    -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" \
+    -af "highpass=f=200,lowpass=f=3000,silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" \
     -f null - 2>&1 | \
 while IFS= read -r line; do
     if echo "$line" | grep -q "silence_end"; then

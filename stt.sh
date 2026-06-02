@@ -68,7 +68,7 @@ elif [[ "$ACTION" == "stop" ]]; then
     # agate: noise gate, hapus sinyal di bawah threshold
     CLEANED_AUDIO="/tmp/stewart_mic_clean.wav"
     ffmpeg -y -i "$AUDIO_FILE" \
-        -af "highpass=f=80,afftdn=nf=-25,loudnorm,agate=threshold=-45dB:ratio=2" \
+        -af "highpass=f=200,lowpass=f=3000,afftdn=nf=-25" \
         "$CLEANED_AUDIO" >/dev/null 2>&1
     
     log_time "Noise reduction finished, preparing API call"
