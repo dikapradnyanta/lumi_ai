@@ -20,6 +20,7 @@ ACTION="$1"
 # ── Baca config ───────────────────────────────────────────────────────────────
 STT_LANGUAGE=$(jq -r '.lumi.sttLanguage // "id"' "$SETTINGS" 2>/dev/null)
 STT_PROMPT=$(jq -r '.lumi.sttPrompt // "Percakapan dengan asisten AI bernama Lumi tentang Linux, teknologi, dan kehidupan sehari-hari."' "$SETTINGS" 2>/dev/null)
+MIC_DEVICE=$(jq -r '.lumi.micDevice // "default"' "$SETTINGS" 2>/dev/null)
 
 if [[ "$ACTION" == "start" ]]; then
     # Hentikan silence monitor sebelumnya
@@ -29,7 +30,11 @@ if [[ "$ACTION" == "start" ]]; then
     fi
 
     # Rekam audio: 16kHz mono 16-bit (optimal untuk Whisper)
-    arecord -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
+    if [ "$MIC_DEVICE" == "default" ] || [ -z "$MIC_DEVICE" ]; then
+        arecord -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
+    else
+        arecord -D "$MIC_DEVICE" -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
+    fi
     echo $! > "$PID_FILE"
 
     # Jalankan silence monitor di background

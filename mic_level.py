@@ -155,11 +155,27 @@ def fast_band_rms(samples: bytes) -> list:
 def main():
     global arecord_proc, running
 
+    # Baca device dari settings.json
+    mic_device = "default"
+    settings_path = os.path.expanduser("~/.config/hypr/settings.json")
+    try:
+        import json
+        with open(settings_path, "r") as f:
+            data = json.load(f)
+            dev = data.get("lumi", {}).get("micDevice", "default")
+            if dev and dev != "null":
+                mic_device = dev
+    except Exception:
+        pass
+
     # Start arecord untuk baca mic
     try:
+        cmd = ["arecord", "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
+        if mic_device != "default":
+            cmd = ["arecord", "-D", mic_device, "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
+            
         arecord_proc = subprocess.Popen(
-            ["arecord", "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE),
-             "-t", "raw", "--quiet"],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL
         )
