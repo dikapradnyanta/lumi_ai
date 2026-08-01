@@ -71,17 +71,20 @@ for CURRENT_KEY in "${KEYS[@]}"; do
     [ -z "$CURRENT_KEY" ] && continue
 
     # Tentukan Provider & API Endpoint (Gemini vs Groq)
-    if [[ "$CURRENT_KEY" == AIzaSy* ]] || [[ "$MODEL" == gemini* ]]; then
+    if [[ "$CURRENT_KEY" == gsk_* ]]; then
+        API_URL="https://api.groq.com/openai/v1/chat/completions"
+        EFFECTIVE_MODEL="$MODEL"
+        if [[ "$EFFECTIVE_MODEL" == gemini* ]]; then
+            EFFECTIVE_MODEL="llama-3.3-70b-versatile"
+        fi
+        log_time "Using Groq API ($EFFECTIVE_MODEL)"
+    else
         API_URL="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
         EFFECTIVE_MODEL="$MODEL"
         if [[ "$EFFECTIVE_MODEL" == llama* ]] || [[ "$EFFECTIVE_MODEL" == mixtral* ]] || [[ "$EFFECTIVE_MODEL" == gemma* ]]; then
             EFFECTIVE_MODEL="gemini-2.5-flash"
         fi
         log_time "Using Google Gemini API ($EFFECTIVE_MODEL)"
-    else
-        API_URL="https://api.groq.com/openai/v1/chat/completions"
-        EFFECTIVE_MODEL="$MODEL"
-        log_time "Using Groq API ($EFFECTIVE_MODEL)"
     fi
 
     PAYLOAD=$(jq \
@@ -96,8 +99,7 @@ for CURRENT_KEY in "${KEYS[@]}"; do
             model: $model,
             max_tokens: $max_tokens,
             temperature: $temperature,
-            top_p: $top_p,
-            stop: null
+            top_p: $top_p
         }' "$REQ_FILE")
 
     if [ "$AUTO_SPEAK" = "true" ]; then
