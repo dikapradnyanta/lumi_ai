@@ -62,7 +62,7 @@ Item {
             opacity: 0.90
             font.family: ["Geist", "Outfit", "DM Sans", "Ubuntu"]
             font.pixelSize: 14
-            font.weight: Font.Light
+            font.bold: false
             lineHeight: 1.55
             wrapMode: Text.WordWrap
         }

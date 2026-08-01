@@ -22,7 +22,7 @@ Item {
         opacity: root.speechState === "idle" ? 0.5 : 0.9
         font.family: "Outfit" // Use Outfit or fallback
         font.pixelSize: 13
-        font.weight: Font.Light
+        font.bold: false
         font.letterSpacing: 2
 
         Behavior on opacity { NumberAnimation { duration: 300 } }
