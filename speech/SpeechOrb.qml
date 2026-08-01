@@ -105,6 +105,8 @@ Rectangle {
         id: enterAnim
         NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 250; easing.type: Easing.OutCubic }
         NumberAnimation { target: root; property: "scale"; from: 0.9; to: 1; duration: 250; easing.type: Easing.OutBack }
+    }
+
     // ── Top Right Force Close Button ──────────────────────────────
     Rectangle {
         width: 32; height: 32; radius: 16
