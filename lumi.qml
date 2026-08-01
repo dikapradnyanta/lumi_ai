@@ -561,13 +561,13 @@ Item {
                 }
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: "Connect Lumi to Groq AI"
+                    text: "Connect Lumi to Gemini AI"
                     font.family: "JetBrains Mono"; font.pixelSize: 15; font.weight: Font.Bold
                     color: root.cText
                 }
                 Text {
                     Layout.alignment: Qt.AlignHCenter; Layout.fillWidth: true
-                    text: "Enter your key below, or configure it via Settings (Super + S > Lumi AI).\nGet a free API key at console.groq.com"
+                    text: "Enter your Gemini API key below (get free key at aistudio.google.com), or configure it via Settings (Super + S > Lumi AI)."
                     font.family: "JetBrains Mono"; font.pixelSize: 11
                     color: root.cSubtext; wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
@@ -575,7 +575,7 @@ Item {
                 TextField {
                     id: apiKeyInput
                     Layout.fillWidth: true
-                    placeholderText: "gsk_xxxxxxxxxxxxxxxxxxxxxxxx"
+                    placeholderText: "AIzaSyxxxxxxxxxxxxxxxxxxxxxxxx"
                     echoMode: TextInput.Password
                     font.family: "JetBrains Mono"; font.pixelSize: 13
                     color: root.cText
