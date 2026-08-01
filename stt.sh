@@ -115,11 +115,12 @@ elif [[ "$ACTION" == "stop" ]]; then
         CLEANED_AUDIO="$AUDIO_FILE"
     fi
 
-    if [ -z "$GROQ_API_KEY" ]; then
-        GROQ_API_KEY=$(jq -r '.lumi.apiKey // empty' "$SETTINGS" 2>/dev/null)
+    API_KEYS="${GEMINI_API_KEY:-${GROQ_API_KEY:-}}"
+    if [ -z "$API_KEYS" ]; then
+        API_KEYS=$(jq -r '.lumi.apiKey // .lumi.geminiApiKey // empty' "$SETTINGS" 2>/dev/null)
     fi
 
-    IFS=',' read -ra KEYS <<< "$GROQ_API_KEY"
+    IFS=',' read -ra KEYS <<< "$API_KEYS"
     if [ ${#KEYS[@]} -eq 0 ]; then
         echo ""
         exit 1
@@ -130,27 +131,46 @@ elif [[ "$ACTION" == "stop" ]]; then
         CURRENT_KEY=$(echo "$CURRENT_KEY" | xargs)
         if [ -z "$CURRENT_KEY" ]; then continue; fi
 
-        # ── Panggil Groq Whisper dengan language hint + prompt konteks ──────────
-        # language: paksa ke bahasa Indonesia → akurasi jauh lebih tinggi
-        # prompt: konteks singkat agar nama, istilah teknis, dll. lebih akurat
-        log_time "Sending request to Groq Whisper API"
-        RESPONSE=$(curl -s --request POST \
-          --url https://api.groq.com/openai/v1/audio/transcriptions \
-          --header "Authorization: Bearer $CURRENT_KEY" \
-          --header "Content-Type: multipart/form-data" \
-          --form file="@$CLEANED_AUDIO" \
-          --form model="whisper-large-v3-turbo" \
-          --form language="$STT_LANGUAGE" \
-          --form prompt="$STT_PROMPT" \
-          --form response_format="json")
-        log_time "Received response from Groq Whisper API"
+        if [[ "$CURRENT_KEY" == AIzaSy* ]]; then
+            log_time "Sending request to Gemini 2.5 Flash Audio API"
+            AUDIO_B64=$(base64 -w 0 "$CLEANED_AUDIO")
+            RESPONSE=$(curl -s --max-time 25 \
+              -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$CURRENT_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "contents": [{
+                  "parts": [
+                    {"text": "Transkripsikan audio percakapan berikut ke dalam teks secara presisi. HANYA kembalikan teks hasil transkripsi tanpa komentar atau penjelasan tambahan."},
+                    {"inline_data": {"mime_type": "audio/wav", "data": "'"$AUDIO_B64"'"}}
+                  ]
+                }]
+              }')
+            log_time "Received response from Gemini Audio API"
+            ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+            if [ -n "$ERR" ]; then
+                continue
+            fi
+            TEXT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' | tr -d '\n' | xargs)
+        else
+            # ── Panggil Groq Whisper dengan language hint + prompt konteks ──────────
+            log_time "Sending request to Groq Whisper API"
+            RESPONSE=$(curl -s --request POST \
+              --url https://api.groq.com/openai/v1/audio/transcriptions \
+              --header "Authorization: Bearer $CURRENT_KEY" \
+              --header "Content-Type: multipart/form-data" \
+              --form file="@$CLEANED_AUDIO" \
+              --form model="whisper-large-v3-turbo" \
+              --form language="$STT_LANGUAGE" \
+              --form prompt="$STT_PROMPT" \
+              --form response_format="json")
+            log_time "Received response from Groq Whisper API"
 
-        ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
-        if [ -n "$ERR" ]; then
-            continue
+            ERR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+            if [ -n "$ERR" ]; then
+                continue
+            fi
+            TEXT=$(echo "$RESPONSE" | jq -r '.text // empty' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
         fi
-
-        TEXT=$(echo "$RESPONSE" | jq -r '.text // empty' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
 
         # Filter halusinasi umum Whisper (muncul saat rekaman terlalu hening)
         if [ -n "$TEXT" ] && [ "$TEXT" != "null" ] && [ ${#TEXT} -gt 2 ]; then

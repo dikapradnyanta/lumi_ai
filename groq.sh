@@ -17,9 +17,9 @@ if [[ -f "$ENV_FILE" ]]; then
     set -a; source "$ENV_FILE"; set +a
 fi
 
-KEY="${GROQ_API_KEY:-}"
+KEY="${GEMINI_API_KEY:-${GROQ_API_KEY:-}}"
 if [ -z "$KEY" ]; then
-    KEY=$(jq -r '.lumi.apiKey // empty' "$SETTINGS" 2>/dev/null)
+    KEY=$(jq -r '.lumi.apiKey // .lumi.geminiApiKey // empty' "$SETTINGS" 2>/dev/null)
 fi
 
 if [ -z "$KEY" ]; then
@@ -42,9 +42,9 @@ MAX_TOKENS=$(jq -r '.lumi.maxTokens // 1024' "$SETTINGS" 2>/dev/null)
 
 # ── DYNAMIC MODEL ROUTING ─────────────────────────────────────────────────────
 # Model kecil (cepat, hemat) untuk percakapan pendek
-SMALL_MODEL=$(jq -r '.lumi.smallModel // "llama-3.1-8b-instant"' "$SETTINGS" 2>/dev/null)
+SMALL_MODEL=$(jq -r '.lumi.smallModel // "gemini-2.5-flash"' "$SETTINGS" 2>/dev/null)
 # Model besar (kuat) untuk konteks panjang / analisis kompleks
-LARGE_MODEL=$(jq -r '.lumi.model // "llama-3.3-70b-versatile"' "$SETTINGS" 2>/dev/null)
+LARGE_MODEL=$(jq -r '.lumi.model // "gemini-2.5-flash"' "$SETTINGS" 2>/dev/null)
 # Ambang batas karakter — di bawah ini pakai model kecil
 THRESHOLD=$(jq -r '.lumi.routingThreshold // 1500' "$SETTINGS" 2>/dev/null)
 
@@ -65,34 +65,48 @@ log_time "Model decided: $MODEL"
 # ── Build payload dengan parameter finetuning ──────────────────────────────────
 DYNAMIC_CONTEXT=$(python3 "$HOME/.config/hypr/scripts/quickshell/lumi/get_context.py" 2>/dev/null)
 
-PAYLOAD=$(jq \
-    --arg model "$MODEL" \
-    --argjson temperature "$TEMPERATURE" \
-    --argjson top_p "$TOP_P" \
-    --argjson max_tokens "$MAX_TOKENS" \
-    --arg dyn_ctx "$DYNAMIC_CONTEXT" \
-    '{
-        messages: (if .[0].role == "system" then (.[0].content += "\n\n" + $dyn_ctx | .) else ([{role: "system", content: $dyn_ctx}] + .) end),
-        stream: true,
-        model: $model,
-        max_tokens: $max_tokens,
-        temperature: $temperature,
-        top_p: $top_p,
-        stop: null
-    }' "$REQ_FILE")
-
 SUCCESS=false
 for CURRENT_KEY in "${KEYS[@]}"; do
     CURRENT_KEY=$(echo "$CURRENT_KEY" | xargs)
     [ -z "$CURRENT_KEY" ] && continue
 
+    # Tentukan Provider & API Endpoint (Gemini vs Groq)
+    if [[ "$CURRENT_KEY" == AIzaSy* ]] || [[ "$MODEL" == gemini* ]]; then
+        API_URL="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        EFFECTIVE_MODEL="$MODEL"
+        if [[ "$EFFECTIVE_MODEL" == llama* ]] || [[ "$EFFECTIVE_MODEL" == mixtral* ]] || [[ "$EFFECTIVE_MODEL" == gemma* ]]; then
+            EFFECTIVE_MODEL="gemini-2.5-flash"
+        fi
+        log_time "Using Google Gemini API ($EFFECTIVE_MODEL)"
+    else
+        API_URL="https://api.groq.com/openai/v1/chat/completions"
+        EFFECTIVE_MODEL="$MODEL"
+        log_time "Using Groq API ($EFFECTIVE_MODEL)"
+    fi
+
+    PAYLOAD=$(jq \
+        --arg model "$EFFECTIVE_MODEL" \
+        --argjson temperature "$TEMPERATURE" \
+        --argjson top_p "$TOP_P" \
+        --argjson max_tokens "$MAX_TOKENS" \
+        --arg dyn_ctx "$DYNAMIC_CONTEXT" \
+        '{
+            messages: (if .[0].role == "system" then (.[0].content += "\n\n" + $dyn_ctx | .) else ([{role: "system", content: $dyn_ctx}] + .) end),
+            stream: true,
+            model: $model,
+            max_tokens: $max_tokens,
+            temperature: $temperature,
+            top_p: $top_p,
+            stop: null
+        }' "$REQ_FILE")
+
     if [ "$AUTO_SPEAK" = "true" ]; then
         log_time "Sending streamStart IPC"
         quickshell -p "$HOME/.config/hypr/scripts/quickshell/Main.qml" ipc call lumi streamStart
 
-        log_time "Starting curl to Groq Chat API (streaming)"
+        log_time "Starting curl to $API_URL (streaming)"
         FULL_TEXT=$(curl -s --no-buffer \
-            -X POST "https://api.groq.com/openai/v1/chat/completions" \
+            -X POST "$API_URL" \
             -H "Authorization: Bearer $CURRENT_KEY" \
             -H "Content-Type: application/json" \
             -H "Accept: text/event-stream" \
@@ -122,7 +136,7 @@ for CURRENT_KEY in "${KEYS[@]}"; do
             --max-time 25 \
             --retry 1 \
             --retry-delay 1 \
-            -X POST "https://api.groq.com/openai/v1/chat/completions" \
+            -X POST "$API_URL" \
             -H "Authorization: Bearer $CURRENT_KEY" \
             -H "Content-Type: application/json" \
             -d "$(echo "$PAYLOAD" | jq 'del(.stream)')" 2>/tmp/lumi_curl_err.log)
@@ -132,7 +146,7 @@ for CURRENT_KEY in "${KEYS[@]}"; do
 
         # Tangkap error API (rate limit, token limit, dll)
         if [ "$HTTP_STATUS" = "429" ]; then
-            echo "ERROR: Rate limit, coba lagi sebentar..."
+            echo "ERROR: Rate limit pada $API_URL, mencoba key/provider lain..." >&2
             continue
         fi
 
@@ -143,11 +157,13 @@ for CURRENT_KEY in "${KEYS[@]}"; do
                 SUCCESS=true
                 break
             fi
+        else
+            echo "ERROR HTTP $HTTP_STATUS dari $API_URL: $BODY" >&2
         fi
     fi
 done
 
 if [ "$SUCCESS" = "false" ]; then
-    echo "ERROR: Semua API key gagal atau rate limited"
+    echo "ERROR: Semua API key gagal atau rate limited. Gunakan Gemini API Key (https://aistudio.google.com)."
     exit 1
 fi

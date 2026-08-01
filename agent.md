@@ -7,7 +7,7 @@ Dokumen ini berisi spesifikasi teknis lengkap, arsitektur sistem, alur IPC, sert
 ## 📌 1. Ikhtisar Sistem (System Overview)
 Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprland** yang mendukung dua mode utama:
 1. **Chat Mode:** Antarmuka obrolan teks tradisional dengan riwayat percakapan, auto-scroll, serta dynamic model routing.
-2. **Speech Mode (Voice Mode):** Antarmuka suara interaktif dengan visualisasi plasma orb 3D (`OrbCore.qml`), pendeteksi suara otomatis (`silence_monitor.sh`), serta integrasi Speech-to-Text (Whisper API) & Text-to-Speech (Piper / Edge-TTS streaming).
+2. **Speech Mode (Voice Mode):** Antarmuka suara interaktif dengan visualisasi plasma orb 3D (`OrbCore.qml`), pendeteksi suara otomatis (`silence_monitor.sh`), serta integrasi Dual AI Engine (Google Gemini API & Groq API) + Speech-to-Text & Text-to-Speech (Piper / Edge-TTS streaming).
 
 ---
 
@@ -19,14 +19,27 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
 | `speech/SpeechOrb.qml` | Overlay antarmuka mode suara. Mengelola state machine suara (`listening`, `thinking`, `speaking`, `idle`), tombol *Answer Now*, dan penanganan peristiwa keyboard/mouse. |
 | `speech/OrbCore.qml` | Renderer Canvas 2D untuk visualisasi plasma orb dengan 10 gelombang dinamis yang merespons 5 band frekuensi audio mic secara real-time. |
 | `LumiService.qml` | Central IPC service untuk Quickshell. Mengontrol proses latar belakang (`stt.sh`, `groq.sh`, `stream_tts.py`) dan memancarkan signal QML (`sttComplete`, `groqComplete`, dll). |
-| `stt.sh` | Backend rekaman audio (`arecord`). Memilih source mic PulseAudio/PipeWire yang valid dan mengirimkan WAV ke Groq Whisper API untuk transkripsi. |
+| `stt.sh` | Backend rekaman audio (`arecord`). Memilih source mic PulseAudio/PipeWire yang valid dan mendukung transkripsi via Gemini 2.5 Flash Audio API / Groq Whisper. |
 | `silence_monitor.sh` | Monitor keheningan real-time menggunakan `ffmpeg silencedetect`. Dilengkapi logika perlindungan *initial silence* (menunggu pengguna bicara sebelum menghitung timeout 1.2 detik). |
 | `mic_level.py` | Python spectrum analyzer. Membaca stream raw PCM dari `arecord`, menghitung FFT 5 band frekuensi, dan memancarkan level amplitudo via stdout (25 FPS). |
-| `groq.sh` | Wrapper API LLM Groq. Memilih model secara dinamis (`llama-3.1-8b-instant` vs `llama-3.3-70b-versatile`), menyuntikkan konteks sistem (`get_context.py`), dan mengalirkan response ke TTS. |
+| `groq.sh` | Wrapper Dual-Engine API LLM (Google Gemini API & Groq API). Mendukung OpenAI-compatible SSE streaming (`gemini-2.5-flash`, `gemini-3.1-pro-preview`, `llama-3.3-70b-versatile`), menyuntikkan konteks sistem (`get_context.py`), dan mengalirkan response ke TTS. |
 
 ---
 
-## 🔄 3. Alur Kerja IPC & Mode Switching
+## 🤖 3. Dual AI Engine (Google Gemini API & Groq API)
+
+- **Google Gemini API Integration (Default Provider):**
+  - **Models:** `gemini-2.5-flash` (Fast & High Rate Limit), `gemini-1.5-flash`, `gemini-3.1-pro-preview`.
+  - **Audio STT:** Gemini 2.5 Flash native multimodal audio transcription via base64 WAV payload.
+  - **LLM Endpoint:** `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` (OpenAI Compatibility Layer dengan SSE Streaming).
+  - **Autodetect Key:** Key diawali `AIzaSy...` atau diset pada environment variable `GEMINI_API_KEY` / `settings.json`.
+
+- **Automatic Failover & Fallback:**
+  - Jika Groq API mengalami **HTTP 429 (Rate Limit)**, sistem secara otomatis beralih (*failover*) ke Google Gemini API tanpa memutus percakapan pengguna.
+
+---
+
+## 🔄 4. Alur Kerja IPC & Mode Switching
 
 ### Mode Switching (Chat ↔ Speech)
 - **Masuk ke Speech Mode:**
@@ -46,14 +59,14 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
                          │
                          └──> [silence_monitor.sh] ──> (Silence 1.2s post-speech) ──> [stt.sh stop]
                                                                                             │
-                                                                                    [Groq Whisper API]
+                                                                       [Gemini 2.5 Flash / Groq Whisper]
                                                                                             │
                                                                                    [onSttComplete IPC]
 ```
 
 ---
 
-## 🎧 4. Konfigurasi Audio & Microphone
+## 🎧 5. Konfigurasi Audio & Microphone
 
 ### Resolusi Perangkat Mic (Audio Source Resolution)
 - Perangkat dikonfigurasi melalui `~/.config/hypr/settings.json` (`lumi.micDevice`).
@@ -64,7 +77,7 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
 
 ---
 
-## ⌨️ 5. Fitur Utama & Navigasi Pengguna
+## ⌨️ 6. Fitur Utama & Navigasi Pengguna
 
 - **Tombol Answer Now:** Push button bergaya modern dengan ikon centang (`󰄬`) untuk langsung menghentikan rekaman dan memproses transkripsi tanpa menunggu timeout hening.
 - **Ketuk Orb Core:** Mengklik Orb saat posisi `idle` atau `speaking` akan langsung memulai rekaman suara baru (`restartListening`).
@@ -72,7 +85,7 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
 
 ---
 
-## 🛠️ 6. Petunjuk Pengujian (Testing Instructions)
+## 🛠️ 7. Petunjuk Pengujian (Testing Instructions)
 
 1. **Uji Coba Rekaman Mic:**
    ```bash
