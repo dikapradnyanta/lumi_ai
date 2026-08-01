@@ -66,9 +66,9 @@ elif [ "$ACTION" = "stop" ]; then
         exit 0
     fi
 
-    log_time "Starting noise reduction with ffmpeg"
+    log_time "Starting noise reduction & audio normalization with ffmpeg"
     ffmpeg -y -i "$AUDIO_FILE" \
-        -af "highpass=f=80, lowpass=f=8000, afftdn=nr=12:nf=-25" \
+        -af "highpass=f=60, lowpass=f=8000, dynaudnorm=g=11:f=150:m=10.0" \
         -ar 16000 -ac 1 \
         "$CLEANED_AUDIO" >/dev/null 2>&1 || true
 
