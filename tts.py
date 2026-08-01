@@ -30,7 +30,7 @@ RETRY_DELAY   = 0.8
 MPV_PID_FILE  = "/tmp/lumi_mpv.pid"
 
 # ── Cek koneksi internet ───────────────────────────────────────
-def is_online(host="api.groq.com", port=443, timeout=2) -> bool:
+def is_online(host="generativelanguage.googleapis.com", port=443, timeout=2) -> bool:
     """Cek apakah ada koneksi internet (coba reach Groq server)."""
     try:
         socket.setdefaulttimeout(timeout)

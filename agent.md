@@ -5,9 +5,9 @@ Dokumen ini berisi spesifikasi teknis lengkap, arsitektur sistem, alur IPC, sert
 ---
 
 ## 📌 1. Ikhtisar Sistem (System Overview)
-Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprland** yang mendukung dua mode utama:
-1. **Chat Mode:** Antarmuka obrolan teks tradisional dengan riwayat percakapan, auto-scroll, serta dynamic model routing.
-2. **Speech Mode (Voice Mode):** Antarmuka suara interaktif dengan visualisasi plasma orb 3D (`OrbCore.qml`), pendeteksi suara otomatis (`silence_monitor.sh`), serta integrasi Dual AI Engine (Google Gemini API & Groq API) + Speech-to-Text & Text-to-Speech (Piper / Edge-TTS streaming).
+Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprland** yang berjalan 100% menggunakan **Google Gemini API**:
+1. **Chat Mode:** Antarmuka obrolan teks tradisional dengan riwayat percakapan, auto-scroll, serta dynamic model routing (`gemini-3.6-flash`).
+2. **Speech Mode (Voice Mode):** Antarmuka suara interaktif dengan visualisasi plasma orb 3D (`OrbCore.qml`), pendeteksi suara otomatis (`silence_monitor.sh`), serta integrasi Google Gemini Multimodal Audio API + Text-to-Speech (Piper / Edge-TTS streaming).
 
 ---
 
@@ -18,24 +18,21 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
 | `lumi.qml` | Main UI container. Mengelola tampilan Chat, riwayat pesan, input box, toggle mode (Chat ↔ Speech), dan keyboard shortcut global (`Escape`). |
 | `speech/SpeechOrb.qml` | Overlay antarmuka mode suara. Mengelola state machine suara (`listening`, `thinking`, `speaking`, `idle`), tombol *Answer Now*, dan penanganan peristiwa keyboard/mouse. |
 | `speech/OrbCore.qml` | Renderer Canvas 2D untuk visualisasi plasma orb dengan 10 gelombang dinamis yang merespons 5 band frekuensi audio mic secara real-time. |
-| `LumiService.qml` | Central IPC service untuk Quickshell. Mengontrol proses latar belakang (`stt.sh`, `groq.sh`, `stream_tts.py`) dan memancarkan signal QML (`sttComplete`, `groqComplete`, dll). |
-| `stt.sh` | Backend rekaman audio (`arecord`). Memilih source mic PulseAudio/PipeWire yang valid dan mendukung transkripsi via Gemini 2.5 Flash Audio API / Groq Whisper. |
+| `LumiService.qml` | Central IPC service untuk Quickshell. Mengontrol proses latar belakang (`stt.sh`, `gemini.sh`, `stream_tts.py`) dan memancarkan signal QML (`sttComplete`, `groqComplete`, dll). |
+| `stt.sh` | Backend rekaman audio (`arecord`). Memilih source mic PulseAudio/PipeWire dan melakukan transkripsi via **Google Gemini Multimodal Audio API** (`gemini-flash-latest`). |
 | `silence_monitor.sh` | Monitor keheningan real-time menggunakan `ffmpeg silencedetect`. Dilengkapi logika perlindungan *initial silence* (menunggu pengguna bicara sebelum menghitung timeout 1.2 detik). |
 | `mic_level.py` | Python spectrum analyzer. Membaca stream raw PCM dari `arecord`, menghitung FFT 5 band frekuensi, dan memancarkan level amplitudo via stdout (25 FPS). |
-| `groq.sh` | Wrapper Dual-Engine API LLM (Google Gemini API & Groq API). Mendukung OpenAI-compatible SSE streaming (`gemini-2.5-flash`, `gemini-3.1-pro-preview`, `llama-3.3-70b-versatile`), menyuntikkan konteks sistem (`get_context.py`), dan mengalirkan response ke TTS. |
+| `gemini.sh` | Google Gemini API LLM Engine. Mendukung OpenAI-compatible SSE streaming (`gemini-3.6-flash`, `gemini-3.1-pro-preview`), menyuntikkan konteks sistem (`get_context.py`), dan mengalirkan response ke TTS. |
 
 ---
 
-## 🤖 3. Dual AI Engine (Google Gemini API & Groq API)
+## 🤖 3. Google Gemini AI Engine
 
-- **Google Gemini API Integration (Default Provider):**
-  - **Models:** `gemini-2.5-flash` (Fast & High Rate Limit), `gemini-1.5-flash`, `gemini-3.1-pro-preview`.
-  - **Audio STT:** Gemini 2.5 Flash native multimodal audio transcription via base64 WAV payload.
+- **Full Gemini API Integration:**
+  - **Models:** `gemini-3.6-flash` (Fast & High Rate Limit), `gemini-flash-latest`, `gemini-3.1-pro-preview`.
+  - **Audio STT:** Gemini Native Multimodal Audio API via base64 WAV payload ke `generativelanguage.googleapis.com`.
   - **LLM Endpoint:** `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` (OpenAI Compatibility Layer dengan SSE Streaming).
-  - **Autodetect Key:** Key diawali `AIzaSy...` atau diset pada environment variable `GEMINI_API_KEY` / `settings.json`.
-
-- **Automatic Failover & Fallback:**
-  - Jika Groq API mengalami **HTTP 429 (Rate Limit)**, sistem secara otomatis beralih (*failover*) ke Google Gemini API tanpa memutus percakapan pengguna.
+  - **Authentication:** Header `Authorization: Bearer <API_KEY>` & `X-goog-api-key: <API_KEY>` (didapatkan dari [Google AI Studio](https://aistudio.google.com)).
 
 ---
 
@@ -59,7 +56,7 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
                          │
                          └──> [silence_monitor.sh] ──> (Silence 1.2s post-speech) ──> [stt.sh stop]
                                                                                             │
-                                                                       [Gemini 2.5 Flash / Groq Whisper]
+                                                                           [Google Gemini Audio API]
                                                                                             │
                                                                                    [onSttComplete IPC]
 ```
@@ -93,13 +90,13 @@ Lumi AI adalah asisten desktop cerdas berbasis **Quickshell (QML)** dan **Hyprla
    # Bicara pada mic, lalu jalankan:
    bash ~/.config/hypr/scripts/quickshell/lumi/stt.sh stop
    ```
-2. **Uji Coba Visualizer Sync:**
+2. **Uji Coba LLM Engine:**
    ```bash
-   python3 ~/.config/hypr/scripts/quickshell/lumi/mic_level.py
-   # Pastikan output angka float 5 band berubah secara responsif saat Anda bersuara.
+   echo '[{"role":"user","content":"halo"}]' > /tmp/req.json
+   bash ~/.config/hypr/scripts/quickshell/lumi/gemini.sh /tmp/req.json false
    ```
 3. **Uji Coba GUI Reload:**
    ```bash
    pkill -f "quickshell -p .*Main.qml"
-   quickshell -p ~/.config/hypr/scripts/quickshell/Main.qml &
+   nohup quickshell -p ~/.config/hypr/scripts/quickshell/Main.qml >/tmp/qs_lumi.log 2>&1 &
    ```

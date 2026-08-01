@@ -217,7 +217,7 @@ Item {
         Qt.callLater(() => { chatFlickable.scrollToBottom() })
         let tmpFile = "/tmp/lumi_req.json"
         Quickshell.execDetached(["bash", "-c", "printf '%s' '" + JSON.stringify(msgs).replace(/'/g, "'\\''") + "' > '" + tmpFile + "'"])
-        groqProcess.command = ["bash", scriptDir + "/groq.sh", tmpFile, root.autoSpeak ? "true" : "false"]
+        groqProcess.command = ["bash", scriptDir + "/gemini.sh", tmpFile, root.autoSpeak ? "true" : "false"]
         groqProcess.running = true
     }
 
