@@ -68,7 +68,7 @@ Rectangle {
         if (!visible) {
             speechState = "idle"
             micProc.running = false
-            LumiService.cancelListening()
+            LumiService.forceStopAll()
         }
     }
 
@@ -105,6 +105,34 @@ Rectangle {
         id: enterAnim
         NumberAnimation { target: root; property: "opacity"; from: 0; to: 1; duration: 250; easing.type: Easing.OutCubic }
         NumberAnimation { target: root; property: "scale"; from: 0.9; to: 1; duration: 250; easing.type: Easing.OutBack }
+    // ── Top Right Force Close Button ──────────────────────────────
+    Rectangle {
+        width: 32; height: 32; radius: 16
+        color: closeMa.containsMouse ? Qt.rgba(1, 0.3, 0.3, 0.3) : Qt.rgba(1, 1, 1, 0.08)
+        border.color: closeMa.containsMouse ? "#FF5252" : Qt.rgba(1, 1, 1, 0.15)
+        border.width: 1
+        anchors.top: parent.top; anchors.right: parent.right
+        anchors.topMargin: 16; anchors.rightMargin: 16
+        z: 10
+
+        Text {
+            anchors.centerIn: parent
+            text: "󰅖"
+            font.family: "Iosevka Nerd Font"
+            font.pixelSize: 16
+            color: closeMa.containsMouse ? "#FF5252" : root.onBackgroundColor
+        }
+
+        MouseArea {
+            id: closeMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                LumiService.forceStopAll()
+                exitAnim.start()
+            }
+        }
     }
 
     Column {
@@ -399,5 +427,8 @@ Rectangle {
     }
 
     focus: true
-    Keys.onEscapePressed: exitAnim.start()
+    Keys.onEscapePressed: {
+        LumiService.forceStopAll()
+        exitAnim.start()
+    }
 }
