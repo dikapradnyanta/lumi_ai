@@ -30,10 +30,10 @@ N_BARS        = 5
 SMOOTHING     = 0.55      # 0 = no smoothing, 1 = full hold (rise fast, fall medium)
 SMOOTHING_UP  = 0.3       # Smoothing saat naik (lebih responsif)
 SMOOTHING_DN  = 0.65      # Smoothing saat turun (lebih smooth)
-GAIN          = 12.0      # Amplifikasi sinyal (mic level biasanya rendah)
-NOISE_GATE    = 0.015     # Level minimum sebelum dianggap silence
+GAIN          = 30.0      # Amplifikasi sinyal (mic level biasanya rendah)
+NOISE_GATE    = 0.003     # Level minimum sebelum dianggap silence
 MIN_IDLE      = 0.08      # Level minimum bar saat diam (supaya tidak flat 0)
-OUTPUT_FPS    = 20        # Target frames per second
+OUTPUT_FPS    = 25        # Target frames per second
 
 # Band ranges (index dalam FFT output, dari 0 Hz - 8kHz range)
 # Chunk 800 samples → FFT 400 bins, tiap bin = 20Hz
@@ -152,6 +152,28 @@ def fast_band_rms(samples: bytes) -> list:
     return band_levels
 
 
+def get_effective_mic_device(configured_dev: str) -> str:
+    if not configured_dev or configured_dev in ("default", "null"):
+        try:
+            res = subprocess.run(["pactl", "get-default-source"], capture_output=True, text=True).stdout.strip()
+            if res and ".monitor" not in res and "snd_aloop" not in res:
+                return res
+        except Exception:
+            pass
+        try:
+            sources = subprocess.run(["pactl", "list", "sources", "short"], capture_output=True, text=True).stdout
+            for line in sources.splitlines():
+                parts = line.split()
+                if len(parts) >= 2:
+                    name = parts[1]
+                    if name.startswith("alsa_input.") and "snd_aloop" not in name:
+                        return name
+        except Exception:
+            pass
+        return "pulse"
+    return configured_dev
+
+
 def main():
     global arecord_proc, running
 
@@ -168,16 +190,23 @@ def main():
     except Exception:
         pass
 
+    target_mic = get_effective_mic_device(mic_device)
+
     # Start arecord untuk baca mic
     try:
-        cmd = ["arecord", "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
-        if mic_device != "default":
-            cmd = ["arecord", "-D", mic_device, "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
-            
+        env = os.environ.copy()
+        if target_mic.startswith("hw:") or target_mic.startswith("sysdefault"):
+            cmd = ["arecord", "-D", target_mic, "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
+        else:
+            cmd = ["arecord", "-D", "pulse", "-f", "S16_LE", "-c", "1", "-r", str(SAMPLE_RATE), "-t", "raw", "--quiet"]
+            if target_mic != "pulse":
+                env["PULSE_SOURCE"] = target_mic
+                
         arecord_proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            env=env
         )
     except FileNotFoundError:
         print("ERROR: arecord tidak ditemukan", file=sys.stderr)

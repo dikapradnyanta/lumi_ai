@@ -54,6 +54,9 @@ SAFETY_PID=$!
 
 echo "[silence_monitor] Threshold: $SILENCE_THRESHOLD, Max silence: ${SILENCE_DURATION}s" >&2
 
+SPEECH_STARTED=false
+START_TIME=$(date +%s)
+
 # ── Monitor loop dengan silencedetect ────────────────────────────────────────
 # Gunakan tail -f agar ffmpeg tidak langsung exit saat mencapai EOF sementara dari arecord
 tail -c +0 -f "$AUDIO_FILE" 2>/dev/null | ffmpeg -loglevel info \
@@ -62,16 +65,28 @@ tail -c +0 -f "$AUDIO_FILE" 2>/dev/null | ffmpeg -loglevel info \
     -f null - 2>&1 | \
 while IFS= read -r line; do
     if echo "$line" | grep -q "silence_end"; then
-        echo "[silence_monitor] Suara aktif" >&2
+        echo "[silence_monitor] Suara aktif (speech detected)" >&2
+        SPEECH_STARTED=true
     elif echo "$line" | grep -q "silence_start"; then
         SILENCE_TS=$(echo "$line" | grep -oP '(?<=silence_start: )[\d.]+')
         echo "[silence_monitor] Hening sejak ${SILENCE_TS}s" >&2
     elif echo "$line" | grep -q "silence_duration"; then
         DUR=$(echo "$line" | grep -oP '(?<=silence_duration: )[\d.]+')
-        echo "[silence_monitor] Hening ${DUR}s → stop rekaman" >&2
-        kill $SAFETY_PID 2>/dev/null || true
-        bash "$(dirname "$0")/stt.sh" stop
-        exit 0
+        NOW=$(date +%s)
+        ELAPSED=$((NOW - START_TIME))
+        if [ "$SPEECH_STARTED" = "true" ]; then
+            echo "[silence_monitor] Suara selesai, hening ${DUR}s → stop rekaman" >&2
+            kill $SAFETY_PID 2>/dev/null || true
+            bash "$(dirname "$0")/stt.sh" stop
+            exit 0
+        elif [ "$ELAPSED" -ge 6 ]; then
+            echo "[silence_monitor] Tidak ada suara terdeteksi setelah ${ELAPSED}s → stop..." >&2
+            kill $SAFETY_PID 2>/dev/null || true
+            bash "$(dirname "$0")/stt.sh" stop
+            exit 0
+        else
+            echo "[silence_monitor] Initial silence ${DUR}s diabaikan (${ELAPSED}s < 6s), menunggu pengguna bicara..." >&2
+        fi
     fi
 done
 

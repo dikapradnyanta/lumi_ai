@@ -22,6 +22,18 @@ STT_LANGUAGE=$(jq -r '.lumi.sttLanguage // "id"' "$SETTINGS" 2>/dev/null)
 STT_PROMPT=$(jq -r '.lumi.sttPrompt // "Percakapan dengan asisten AI bernama Lumi tentang Linux, teknologi, dan kehidupan sehari-hari."' "$SETTINGS" 2>/dev/null)
 MIC_DEVICE=$(jq -r '.lumi.micDevice // "default"' "$SETTINGS" 2>/dev/null)
 
+get_effective_mic_device() {
+    local dev="$MIC_DEVICE"
+    if [ "$dev" = "null" ] || [ "$dev" = "default" ] || [ -z "$dev" ]; then
+        local def_src=$(pactl get-default-source 2>/dev/null || echo "")
+        if [[ "$def_src" == *".monitor"* ]] || [[ "$def_src" == *"snd_aloop"* ]] || [ -z "$def_src" ]; then
+            def_src=$(pactl list sources short 2>/dev/null | awk '{print $2}' | grep "^alsa_input" | grep -v "snd_aloop" | head -n 1)
+        fi
+        dev="${def_src:-pulse}"
+    fi
+    echo "$dev"
+}
+
 if [[ "$ACTION" == "start" ]]; then
     # Hentikan silence monitor sebelumnya
     if [ -f "/tmp/stewart_silence.pid" ]; then
@@ -29,11 +41,14 @@ if [[ "$ACTION" == "start" ]]; then
         rm -f "/tmp/stewart_silence.pid"
     fi
 
+    TARGET_MIC=$(get_effective_mic_device)
+    log_time "Recording starting on device: $TARGET_MIC"
+
     # Rekam audio: 16kHz mono 16-bit (optimal untuk Whisper)
-    if [ "$MIC_DEVICE" == "default" ] || [ -z "$MIC_DEVICE" ]; then
-        arecord -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
+    if [[ "$TARGET_MIC" == hw:* ]] || [[ "$TARGET_MIC" == sysdefault* ]]; then
+        arecord -D "$TARGET_MIC" -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
     else
-        arecord -D "$MIC_DEVICE" -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
+        PULSE_SOURCE="$TARGET_MIC" arecord -D pulse -f S16_LE -c 1 -r 16000 -t wav "$AUDIO_FILE" >/dev/null 2>&1 &
     fi
     echo $! > "$PID_FILE"
 
@@ -139,7 +154,7 @@ elif [[ "$ACTION" == "stop" ]]; then
 
         # Filter halusinasi umum Whisper (muncul saat rekaman terlalu hening)
         if [ -n "$TEXT" ] && [ "$TEXT" != "null" ] && [ ${#TEXT} -gt 2 ]; then
-            if [[ "$TEXT" =~ ^[[:space:]]*([Tt]hank[s]?[[:space:]]for[[:space:]]watching[.!]?|[Ss]ubscribe[.!]?|[Mm]usic[[:space:]]playing|[Tt]erima[[:space:]]kasih[.!]?|[Tt]erima[[:space:]]kasih[[:space:]]sudah[[:space:]]menonton[.!]?)[[:space:]]*$ ]]; then
+            if [[ "$TEXT" =~ ^[[:space:]]*([Tt]hank[s]?[[:space:]]for[[:space:]]watching[.!]?|[Ss]ubscribe[.!]?|[Mm]usic[[:space:]]playing|[Tt]erima[[:space:]]kasih[.!]?|[Tt]erima[[:space:]]kasih[[:space:]](sudah|telah)[[:space:]]menonton[.!]?)[[:space:]]*$ ]]; then
                 echo ""
             else
                 SUCCESS=true

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Effects
 import Quickshell.Io
+import Quickshell
 import "."
 import "../../"
 
@@ -14,6 +15,8 @@ Rectangle {
     property string responseText: ""
     property string sttTranscript: ""
     property bool isAborting: false
+    property string greetingName: ""
+    property string greetingText: ""
 
     // Colors — wired to Matugen via parent or defaults
     property color primaryColor:            "#4DB6AC"
@@ -60,6 +63,16 @@ Rectangle {
     // Enter animation
     opacity: 0; scale: 0.9
     visible: opacity > 0
+    
+    onVisibleChanged: {
+        if (!visible) {
+            speechState = "idle"
+            micProc.running = false
+            LumiService.cancelListening()
+        }
+    }
+
+    signal closeRequested()
 
     function open() {
         visible = true
@@ -67,6 +80,20 @@ Rectangle {
         speechState = "listening"
         responseText = ""
         sttTranscript = ""
+        
+        let uname = Quickshell.env("USER") || "Robin"
+        let formattedName = uname.length > 0 ? uname.charAt(0).toUpperCase() + uname.slice(1) : "Robin"
+        root.greetingName = "Hello " + formattedName
+        root.greetingText = "How can I help you today?"
+        
+        LumiService.startListening()
+    }
+
+    function restartListening() {
+        LumiService.muteTTS()
+        speechState = "listening"
+        sttTranscript = ""
+        responseText = ""
         LumiService.startListening()
     }
 
@@ -83,13 +110,16 @@ Rectangle {
     Column {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: 50
-        spacing: 0
+        anchors.topMargin: 40
+        spacing: root.speechState === "speaking" ? -60 : 0
+        Behavior on spacing { NumberAnimation { duration: 400; easing.type: Easing.InOutCubic } }
 
         // Orb + Rings
         Item {
             width: 340; height: 340
             anchors.horizontalCenter: parent.horizontalCenter
+            scale: root.speechState === "speaking" ? 0.6 : 1.0
+            Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.InOutCubic } }
 
             RingSystem {
                 anchors.fill: parent
@@ -102,7 +132,7 @@ Rectangle {
                 anchors.centerIn: parent
                 primaryColor: root.primaryColor
                 containerColor: root.primaryContainerColor
-                glowColor: root.tertiaryColor
+                tertiaryColor: root.tertiaryColor
                 glowRadius: root.targetGlowRadius
                 speechState: root.speechState
 
@@ -121,6 +151,17 @@ Rectangle {
 
                 Behavior on glowRadius { NumberAnimation { duration: 400; easing.type: Easing.InOutSine } }
             }
+
+            MouseArea {
+                anchors.centerIn: parent
+                width: 220; height: 220
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (root.speechState === "idle" || root.speechState === "speaking") {
+                        root.restartListening()
+                    }
+                }
+            }
         }
 
         Item { width: 1; height: 12 }
@@ -132,6 +173,33 @@ Rectangle {
         }
 
         Item { width: 1; height: 16 }
+        
+        // ── Apple Intelligence Style Greeting ──────────────────
+        Column {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 8
+            visible: root.speechState === "listening" && root.sttTranscript === ""
+            opacity: visible ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.InOutQuad } }
+
+            Text {
+                text: root.greetingName
+                font.family: "Outfit"
+                font.pixelSize: 16
+                font.weight: Font.Medium
+                color: Qt.rgba(root.onBackgroundColor.r, root.onBackgroundColor.g, root.onBackgroundColor.b, 0.7)
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: root.greetingText
+                font.family: "Outfit"
+                font.pixelSize: 28
+                font.weight: Font.Bold
+                color: root.onBackgroundColor
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
 
         // Teks transkripsi STT — tampil setelah user selesai bicara
         SttTranscript {
@@ -222,50 +290,34 @@ Rectangle {
         Item { width: 1; height: 24 }
 
         // ── Manual Control Buttons (Listening State Only) ───────────────
-        Row {
+        Column {
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 20
+            spacing: 16
             visible: root.speechState === "listening"
             opacity: root.speechState === "listening" ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 220 } }
 
-            // Cancel Button
-            Rectangle {
-                width: 120; height: 36; radius: 18
-                color: cancelMa.containsMouse ? Qt.rgba(root.tertiaryColor.r, root.tertiaryColor.g, root.tertiaryColor.b, 0.2) : "transparent"
-                border.color: Qt.rgba(root.tertiaryColor.r, root.tertiaryColor.g, root.tertiaryColor.b, 0.5)
-                border.width: 1
-                Behavior on color { ColorAnimation { duration: 150 } }
-                
-                Row {
-                    anchors.centerIn: parent; spacing: 6
-                    Text { text: "󰅖"; font.family: "Iosevka Nerd Font"; color: root.tertiaryColor; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "Cancel"; font.family: "Outfit"; color: root.tertiaryColor; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                MouseArea {
-                    id: cancelMa; anchors.fill: parent; hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        root.isAborting = true
-                        root.speechState = "idle"
-                        Quickshell.execDetached(["bash", "/home/dikapradnyanta/.config/hypr/scripts/quickshell/lumi/stt.sh", "abort"])
-                        LumiService.cancelListening()
-                        root.close()
-                    }
-                }
+            Text {
+                text: "Tekan Esc atau klik area luar untuk batal"
+                font.family: "Outfit"
+                font.pixelSize: 12
+                color: Qt.rgba(root.onBackgroundColor.r, root.onBackgroundColor.g, root.onBackgroundColor.b, 0.6)
+                anchors.horizontalCenter: parent.horizontalCenter
             }
 
-            // Answer Now Button
+            // Answer Now Push Button
             Rectangle {
-                width: 140; height: 36; radius: 18
+                width: 145; height: 38; radius: 19
                 color: answerMa.containsMouse ? root.primaryContainerColor : root.primaryColor
+                scale: answerMa.pressed ? 0.95 : (answerMa.containsMouse ? 1.04 : 1.0)
+                Behavior on scale { NumberAnimation { duration: 120 } }
                 Behavior on color { ColorAnimation { duration: 150 } }
+                anchors.horizontalCenter: parent.horizontalCenter
                 
                 Row {
-                    anchors.centerIn: parent; spacing: 6
-                    Text { text: "󰔡"; font.family: "Iosevka Nerd Font"; color: root.onBackgroundColor; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "Answer Now"; font.family: "Outfit"; font.weight: Font.Medium; color: root.onBackgroundColor; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                    anchors.centerIn: parent; spacing: 8
+                    Text { text: "󰄬"; font.family: "Iosevka Nerd Font"; color: root.onBackgroundColor; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "Answer Now"; font.family: "Outfit"; font.weight: Font.SemiBold; color: root.onBackgroundColor; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                 }
 
                 MouseArea {
@@ -310,8 +362,15 @@ Rectangle {
                 root.isAborting = false
                 return
             }
-            root.sttTranscript = text
-            root.speechState = "thinking"
+            let trimmed = (text || "").trim()
+            if (trimmed !== "" && trimmed !== "null") {
+                root.sttTranscript = trimmed
+                root.speechState = "thinking"
+            } else {
+                root.sttTranscript = ""
+                root.responseText = "Tidak ada suara terdeteksi. Ketuk Orb untuk bicara."
+                root.speechState = "idle"
+            }
         }
         function onStreamStart() { 
             if (!root.isAborting) root.speechState = "speaking" 
@@ -333,7 +392,10 @@ Rectangle {
         id: exitAnim
         NumberAnimation { target: root; property: "opacity"; to: 0; duration: 200; easing.type: Easing.InCubic }
         NumberAnimation { target: root; property: "scale"; to: 0.95; duration: 200 }
-        onFinished: root.visible = false
+        onFinished: {
+            root.visible = false
+            root.closeRequested()
+        }
     }
 
     focus: true

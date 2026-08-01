@@ -10,6 +10,10 @@ import "speech"
 Item {
     id: root
 
+    // Tell Main.qml to resize the master window for Lumi
+    property int targetMasterWidth: 650
+    property int targetMasterHeight: 700
+
     MatugenColors { id: _theme }
 
     // ── Colors ────────────────────────────────────────────────────────────
@@ -25,7 +29,7 @@ Item {
     readonly property color cSapphire: _theme.sapphire
     readonly property color cGreen:    _theme.green
     readonly property color cRed:      _theme.red
-    readonly property color cLavender: _theme.lavender
+    readonly property color cLavender: _theme.mauve
     readonly property color cCrust:    _theme.crust
 
     // ── State ─────────────────────────────────────────────────────────────
@@ -260,18 +264,28 @@ Item {
         }
     }
 
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.speechMode
+        onActivated: {
+            speechOrb.close()
+            root.isRecording = false
+            LumiService.cancelListening()
+            LumiService.muteTTS()
+            root.speechMode = false
+        }
+    }
+
     Connections {
         target: typeof LumiService !== "undefined" ? LumiService : null
         function onSttComplete(text) {
             root.isRecording = false
-            let trimmed = text.trim()
+            let trimmed = (text || "").trim()
             if (trimmed !== "" && trimmed !== "null") {
                 speechOrb.sttTranscript = trimmed
                 msgInput.text = trimmed
                 msgInput.forceActiveFocus()
                 root.sendMessage(trimmed)
-            } else {
-                speechOrb.close()
             }
         }
 
@@ -840,6 +854,12 @@ Item {
         onBackgroundColor: root.cText
         surfaceVariantColor: Qt.rgba(root.cSurface1.r, root.cSurface1.g, root.cSurface1.b, 0.8)
 
+        onCloseRequested: {
+            root.isRecording = false
+            LumiService.cancelListening()
+            LumiService.muteTTS()
+            root.speechMode = false
+        }
     }
 
     Component.onCompleted: {
