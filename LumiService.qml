@@ -112,54 +112,25 @@ QtObject {
     }
 
     // ============================================================
-    // PROCESS: stt.sh start
+    // PROCESS: stt_local.py (Faster-Whisper + Silero VAD)
     // ============================================================
-    property Process sttStartProcess: Process {
-        id: _sttStartProc
-        command: ["bash", service.backendDir + "/stt.sh", "start"]
+    property Process sttLocalProcess: Process {
+        id: _sttLocalProc
+        command: ["python3", service.backendDir + "/stt_local.py"]
         running: false
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let out = this.text.trim()
-                if (out.startsWith("RECORDING:")) {
-                    service.isRecording = true
-                    console.log("[LumiService] STT recording started")
-                } else {
-                    service.errorOccurred("Gagal memulai rekaman: " + out)
+        stdout: SplitParser {
+            onRead: (line) => {
+                let trimmed = line.trim()
+                if (trimmed.startsWith("FINAL:")) {
+                    service.isRecording = false
+                    let result = trimmed.substring(6).trim()
+                    if (result !== "SILENCE" && !result.startsWith("ERROR:") && result.length > 0) {
+                        service.sttTranscriptReady(result)
+                    }
+                } else if (trimmed.startsWith("ERROR:")) {
+                    service.isRecording = false
+                    service.errorOccurred(trimmed)
                 }
-            }
-        }
-    }
-
-    // ============================================================
-    // PROCESS: stt.sh stop (rekam + transkrip)
-    // ============================================================
-    property Process sttStopProcess: Process {
-        id: _sttStopProc
-        command: ["bash", service.backendDir + "/stt.sh", "stop"]
-        running: false
-        stdout: StdioCollector {
-            onStreamFinished: {
-                service.isRecording = false
-                let result = this.text.trim()
-
-                if (result === "SILENCE") {
-                    console.log("[LumiService] STT: no speech detected")
-                    return
-                }
-                if (result.startsWith("ERROR:")) {
-                    service.errorOccurred("STT gagal: " + result)
-                    return
-                }
-                if (result.length > 0) {
-                    service.sttTranscriptReady(result)
-                }
-            }
-        }
-        stderr: StdioCollector {
-            onStreamFinished: {
-                let txt = this.text.trim()
-                if (txt.length > 0) console.log("[stt.sh]", txt)
             }
         }
     }
@@ -247,15 +218,14 @@ QtObject {
     // Mulai rekaman STT
     function startSTT() {
         if (service.isRecording) return
-        _sttStartProc.running = false
-        _sttStartProc.running = true
+        service.isRecording = true
+        _sttLocalProc.running = false
+        _sttLocalProc.running = true
     }
 
     // Hentikan rekaman STT + transkrip
     function stopSTT() {
-        if (!service.isRecording) return
-        _sttStopProc.running = false
-        _sttStopProc.running = true
+        Quickshell.execDetached(["bash", "-c", "touch /tmp/lumi_stt_stop"])
     }
 
     // Putarkan teks via TTS
