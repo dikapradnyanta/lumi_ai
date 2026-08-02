@@ -1,0 +1,3 @@
+module lumi2
+
+singleton LumiService 1.0 LumiService.qml

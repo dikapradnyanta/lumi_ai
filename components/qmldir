@@ -1,0 +1,9 @@
+module components
+
+ChatView 1.0 ChatView.qml
+InputBar 1.0 InputBar.qml
+MessageBubble 1.0 MessageBubble.qml
+QuickReply 1.0 QuickReply.qml
+ThinkingIndicator 1.0 ThinkingIndicator.qml
+VoicePanel 1.0 VoicePanel.qml
+Waveform 1.0 Waveform.qml
