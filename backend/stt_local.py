@@ -99,18 +99,25 @@ def vad_is_speech(session, vad_ctx, chunk_512: np.ndarray, energy_threshold: flo
         return peak_energy >= energy_threshold, vad_ctx
 
 
-def transcribe_chunk(model, audio_bytes: bytes) -> str:
-    """Transcribe raw PCM bytes using faster-whisper."""
+def transcribe_chunk(model, audio_bytes: bytes, language: str = "id") -> str:
+    """Transcribe raw PCM bytes using faster-whisper with peak normalization and language context."""
     if not audio_bytes or len(audio_bytes) < int(SAMPLE_RATE * 2 * 0.3):
         return ""
     try:
         samples = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # Peak normalization to ensure soft voices are clearly audible
+        max_val = np.max(np.abs(samples))
+        if max_val > 0.005:
+            samples = samples / max_val
+
         segments, _ = model.transcribe(
             samples,
-            beam_size=1,
+            beam_size=3,
             word_timestamps=False,
             condition_on_previous_text=False,
-            language=None
+            language=language if language != "auto" else None,
+            initial_prompt="Transkripsi percakapan Bahasa Indonesia. Kata kunci: Lumi, Hyprland, Linux, Halo."
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
         return text
@@ -128,14 +135,23 @@ def run():
     calib_threshold = float(settings.get("speechThreshold", 0.02))
     energy_threshold = min(0.04, max(0.008, calib_threshold))
 
+    # STT Model selection (default "base", fallback to "tiny")
+    model_name = settings.get("sttModel", "base")
+    stt_lang = settings.get("sttLanguage", "id")
+
     mic_device = resolve_mic()
 
     # Load faster-whisper model
-    log("Loading faster-whisper tiny model...")
+    log(f"Loading faster-whisper model '{model_name}'...")
     try:
         from faster_whisper import WhisperModel  # type: ignore
-        model = WhisperModel("tiny", device="cpu", compute_type="int8", download_root=MODEL_CACHE)
-        log("faster-whisper tiny: ready")
+        try:
+            model = WhisperModel(model_name, device="cpu", compute_type="int8", download_root=MODEL_CACHE)
+            log(f"faster-whisper '{model_name}': ready")
+        except Exception as e_base:
+            log(f"Failed loading '{model_name}': {e_base}. Falling back to 'tiny'...")
+            model = WhisperModel("tiny", device="cpu", compute_type="int8", download_root=MODEL_CACHE)
+            log("faster-whisper 'tiny' (fallback): ready")
     except Exception as e:
         print(f"ERROR:whisper_load:{e}", flush=True)
         return
@@ -204,7 +220,7 @@ def run():
 
             # ── PARTIAL live text preview (every CHUNK_BYTES) ──────────
             if len(preview_buffer) >= CHUNK_BYTES:
-                preview_text = transcribe_chunk(model, preview_buffer)
+                preview_text = transcribe_chunk(model, preview_buffer, language=stt_lang)
                 preview_buffer = preview_buffer[CHUNK_BYTES:]
                 if preview_text and preview_text.lower() not in ("", ".", "you", "the", "thank you"):
                     if preview_text != last_partial:
@@ -231,7 +247,7 @@ def run():
             pass
 
     # Transcribe entire accumulated speech buffer for accurate FINAL result
-    final_text = transcribe_chunk(model, accumulated_pcm)
+    final_text = transcribe_chunk(model, accumulated_pcm, language=stt_lang)
     if not final_text and last_partial:
         final_text = last_partial
 
