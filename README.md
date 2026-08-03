@@ -1,45 +1,98 @@
-# Lumi AI untuk Hyprland & Quickshell
+# Lumi AI v2 — Desktop AI Assistant for Hyprland & Quickshell
 
-Lumi AI adalah asisten virtual berbasis suara yang sangat ringan dan cepat, dirancang secara native untuk desktop **Hyprland** menggunakan UI dari **Quickshell**. Lumi memanfaatkan API Groq untuk *Speech-to-Text* (Whisper) dan inferensi AI (Llama 3, Mixtral, dll) secara instan, serta integrasi Text-to-Speech yang cerdas.
+<p align="center">
+  <img src="assets/lumi_logo.svg" alt="Lumi Logo" width="160" height="160" />
+</p>
+
+Lumi AI v2 adalah asisten virtual cerdas berbasis suara dan teks yang dirancang secara native untuk desktop **Hyprland** menggunakan **Quickshell**. Lumi mengintegrasikan **Google Gemini API** dengan konteks sistem Hyprland, **Faster-Whisper (Local STT)** dengan Silero VAD, serta **Piper TTS (Local Speech Synthesis)** untuk interaksi suara yang cepat dan natural.
+
+---
 
 ## ✨ Fitur Utama
 
-- **🚀 Native & Super Cepat**: Menggunakan arsitektur bash + QML yang sangat ringan. Tidak ada backend server berat (Node/Python daemon) yang berjalan di background.
-- **🎤 Kalibrasi Silence Otomatis**: Dilengkapi dengan STT cerdas. Lumi hanya mendengarkan saat Anda berbicara dan otomatis berhenti saat Anda diam. Ambang batas keheningan (Silence Threshold) dapat dikalibrasi otomatis atau diatur manual via UI.
-- **🔄 Dynamic Model Routing**: Demi kecepatan maksimal, Lumi akan menggunakan model AI ringan (Fast Model, misal `Llama 3 8B`) untuk pertanyaan singkat, dan otomatis beralih ke model besar (`Llama 3 70B`) jika prompt Anda melebihi panjang karakter yang ditentukan.
-- **🔊 Auto-TTS**: Anda bisa menyalakan fitur Auto-Speak di Settings agar Lumi langsung membacakan balasannya kepada Anda.
-- **⚙️ Konfigurasi Penuh dari UI**: Ganti API Key, pilih AI Model, atur Temperature, Max Tokens, hingga Threshold semuanya bisa dilakukan langsung dari menu Settings Quickshell.
+- **🪐 Elegant Branding & UI**: Dilengkapi logo vektor SVG resmi (Cat Sleeping on Planet) dengan tema Catppuccin / Matugen dan animasi mikro yang fluida.
+- **🎙️ Dual Mode (Voice & Chat)**:
+  - **Voice Mode**: Mode interaksi hands-free dengan *voice-loop* otomatis (Listen → Think → Speak → Loop).
+  - **Chat Mode**: Tampilan percakapan multi-bubble dengan dukungan format Markdown & kode.
+- **🧠 Local STT Presisi Tinggi (Faster-Whisper + Silero VAD)**:
+  - Menggunakan model Whisper `base` (dengan fallback otomatis ke `tiny`).
+  - Dilengkapi **Silero VAD ONNX** untuk menyaring kebisingan latar belakang.
+  - **Peak Audio Normalization** & Pengunci Bahasa Indonesia (`id`) untuk transkripsi suara yang sangat akurat.
+- **🔊 Local Neural TTS (Piper AudioChunk Streaming)**:
+  - Sintesis suara lokal Bahasa Indonesia (`id_ID-news_tts-medium.onnx`) yang disalurkan secara streaming ke `aplay`.
+  - Dilengkapi **Markdown Sanitizer** dan pembacaan teks bergaya *Karaoke word highlight*.
+  - Dukungan fallback online ke **Edge-TTS**.
+- **📊 7-Band FFT Visualizer (`mic_level.py`)**:
+  - Visualizer audio 7-bar yang reaktif dan fluida berbasis FFT dengan animasi *Exponential Moving Average (EMA)*.
+- **⚙️ Automated 2-Stage Microphone Calibration**:
+  - Perekaman 2 tahap (Background noise 5s + Voice 4s) untuk menentukan threshold SNR suara secara otomatis tanpa distorsi.
+- **💻 Hyprland Desktop Context Awareness**:
+  - Membaca judul jendela aktif, workspace Hyprland, dan status media player untuk dimasukkan ke konteks Gemini API.
+
+---
 
 ## 📦 Prasyarat Sistem
 
-Sebelum menginstall Lumi AI, pastikan sistem Anda memiliki paket-paket berikut:
+Pastikan paket-paket berikut terinstall di sistem Linux Anda:
 
-- **Hyprland** (Window Manager)
-- **Quickshell** (UI Framework)
-- `curl` dan `jq` (Untuk API STT/TTS dan parsing JSON)
-- `ffmpeg` dan `alsa-utils` (`arecord` untuk perekaman dan kalibrasi audio)
-- `bc` (Kalkulator shell untuk kalibrasi audio)
-- `python3` (Untuk kalkulasi mic level visualisasi)
+```bash
+# Arch Linux Dependencies
+sudo pacman -S pipewire wireplumber pactl jq python python-pip mpv alsa-utils potrace
+```
 
-## 🛠️ Cara Install & Setup
+### Python Dependencies
 
-Anda dapat dengan mudah menyalin folder `lumi/` ke konfigurasi Quickshell Anda menggunakan skrip instalasi yang disediakan:
+```bash
+pip install numpy faster-whisper onnxruntime piper-tts edge-tts
+```
 
-1. Unduh dan jalankan skrip installer:
+---
+
+## 🛠️ Cara Install & Running
+
+1. **Clone Repository**:
    ```bash
-   chmod +x install_lumi.sh
-   ./install_lumi.sh
+   git clone https://github.com/dikapradnyanta/lumi_ai.git ~/.config/hypr/scripts/quickshell/lumi2
    ```
 
-2. Buka Quickshell Settings (umumnya dengan shortcut `Super + S` atau via App Launcher), lalu navigasi ke tab **Lumi AI (Logo Robot/Mic)**.
-3. Masukkan **Groq API Key** Anda (Dapatkan gratis dari `console.groq.com`).
-4. (Opsional) Klik tombol **Run Calibration** di menu Microphone Calibration untuk mendeteksi tingkat noise di ruangan Anda secara otomatis, atau ketik manual (contoh: `-35dB`).
-5. Selesai! Lumi AI siap digunakan.
+2. **Download Model Piper TTS (Bahasa Indonesia)**:
+   ```bash
+   mkdir -p ~/.local/share/piper/models
+   cd ~/.local/share/piper/models
+   wget https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx
+   wget https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json
+   ```
 
-## 💡 Arsitektur Singkat
+3. **Konfigurasi Gemini API Key**:
+   Buka `~/.config/hypr/settings.json` dan tambahkan API Key Gemini Anda:
+   ```json
+   {
+     "lumi": {
+       "apiKey": "YOUR_GEMINI_API_KEY",
+       "model": "gemini-2.5-flash",
+       "sttModel": "base",
+       "sttLanguage": "id",
+       "autoSpeak": true,
+       "silenceDuration": 0.8
+     }
+   }
+   ```
 
-- `lumi.qml`: Front-end utama chat Lumi. Menangani state UI, visualizer mic, dan animasi.
-- `LumiConfigTab.qml`: Menu pengaturan Lumi yang terintegrasi di Quickshell Settings.
-- `stt.sh`: Menggunakan Whisper via Groq untuk mendeteksi dan mentranskrip suara.
-- `silence_monitor.sh`: Memonitor aktivitas mikrofon menggunakan `arecord` dan memotong rekaman otomatis jika terdeteksi keheningan sesuai *threshold*.
-- `groq.sh`: Skrip bash untuk mengirim request STT dan chat secara paralel ke API.
+4. **Jalankan via Quickshell**:
+   ```bash
+   qs -p ~/.config/hypr/scripts/quickshell/lumi2/Lumi.qml
+   ```
+
+---
+
+## 💡 Struktur Arsitektur Singkat
+
+- `Lumi.qml`: Main window container dengan logo SVG dan mode switcher.
+- `LumiService.qml`: Core IPC process manager dan handler state.
+- `backend/stt_local.py`: Engine local STT (Faster-Whisper + Silero VAD + Normalization).
+- `backend/tts.py`: Engine local TTS (Piper AudioChunk + Edge-TTS fallback + `aplay`).
+- `backend/mic_level.py`: Real-time 7-band FFT audio analyzer untuk `Waveform.qml`.
+- `backend/gemini.sh`: Client Google Gemini API dengan context injection.
+- `backend/get_context.py`: Hyprland window & system metrics context generator.
+- `backend/calibrate_mic.py`: Automated 2-stage noise & speech calibration pipeline.
+- `assets/lumi_logo.svg`: Official Lumi SVG vector logo.

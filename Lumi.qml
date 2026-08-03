@@ -310,17 +310,11 @@ Item {
             anchors.rightMargin: 12
             spacing: 10
 
-            Rectangle {
-                width: 30; height: 30
-                radius: 15
-                color: _theme.mauve
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "✦"
-                    font.pixelSize: 14
-                    color: _theme.crust
-                }
+            Image {
+                width: 28; height: 28
+                source: "./assets/lumi_logo.svg"
+                sourceSize: Qt.size(28, 28)
+                fillMode: Image.PreserveAspectFit
             }
 
             Column {

@@ -10,7 +10,7 @@ Ensure the following packages are installed on your Linux system:
 
 ```bash
 # Arch Linux Dependencies
-sudo pacman -S pipewire wireplumber pactl jq python python-pip mpv aplay
+sudo pacman -S pipewire wireplumber pactl jq python python-pip mpv alsa-utils potrace
 ```
 
 ### Python Dependencies
@@ -38,13 +38,15 @@ pip install numpy faster-whisper onnxruntime piper-tts edge-tts
    wget https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json
    ```
 
-3. **Configure API Key**:
-   Set your Google Gemini API key in `~/.config/hypr/settings.json`:
+3. **Configure API Key & Model Settings**:
+   Set your Google Gemini API key and preferred STT settings in `~/.config/hypr/settings.json`:
    ```json
    {
      "lumi": {
        "apiKey": "YOUR_GEMINI_API_KEY",
        "model": "gemini-2.5-flash",
+       "sttModel": "base",
+       "sttLanguage": "id",
        "autoSpeak": true,
        "silenceDuration": 0.8
      }
@@ -64,6 +66,6 @@ To calibrate your microphone for optimal Voice Activity Detection:
 
 1. Open the **Quickshell Settings** tab (`LumiConfigTab.qml`).
 2. Click **Run 2-Stage Calibration**.
-3. **Stage 1**: Stay completely silent for 5 seconds while background noise is recorded.
+3. **Stage 1**: Stay completely silent for 5 seconds while background noise floor is measured.
 4. **Stage 2**: Speak normally for 4 seconds when prompted.
-5. The optimal `silenceThreshold` will be computed and saved automatically.
+5. The optimal `speechThreshold` will be computed and saved automatically.

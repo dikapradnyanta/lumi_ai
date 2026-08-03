@@ -5,8 +5,9 @@
 Lumi AI v2 is built using modern UI principles for Linux desktop widgets:
 
 1. **Rich Aesthetics & Glassmorphism**: Soft ambient shadows, translucent surfaces, and Catppuccin / Matugen color palettes.
-2. **Dynamic Micro-Animations**: Smooth transition curves (`OutExpo`, `OutCubic`), glowing active states, and animated pulsing orb visualizers.
-3. **Typography**: Uses modern fonts including **Inter** for interface text, **JetBrains Mono** for code/input fields, and **Iosevka Nerd Font** for crisp icons.
+2. **Official SVG Vector Logo**: Clean minimalist cat-on-planet icon (`assets/lumi_logo.svg`) supporting dynamic `currentColor` fill.
+3. **Dynamic Micro-Animations**: Smooth transition curves (`OutExpo`, `OutCubic`), glowing active aura states, and 7-band FFT animated waveform visualizer.
+4. **Typography**: Uses modern fonts including **Inter** for interface text, **JetBrains Mono** for code/input fields, and **Iosevka Nerd Font** for crisp icons.
 
 ---
 
@@ -29,16 +30,21 @@ property color text:     "#cdd6f4" // Primary typography
 
 ## UI Components Overview
 
-### 1. `VoicePanel.qml`
-- **Animated Audio Orb**: Multi-ring canvas glowing based on speech state (`listening`, `thinking`, `speaking`).
-- **Waveform Visualizer**: Real-time sine wave audio visualizer reactive to microphone volume level.
-- **Transcript Display**: Live partial transcript preview and assistant subtitle display.
+### 1. `assets/lumi_logo.svg`
+- Scalable SVG vector icon featuring a sleeping cat wrapped around a ringed planet with a 4-point sparkle star.
+- Uses `fill="currentColor"` so it automatically inherits theme text/accent color.
 
-### 2. `ChatView.qml`
+### 2. `VoicePanel.qml`
+- **Ambient Aura Glow**: Soft pulsing background glow reflecting active voice states (`listening`, `thinking`, `speaking`, `error`).
+- **7-Bar Waveform Visualizer**: Real-time frequency analyzer driven by 7-band FFT input from `mic_level.py`.
+- **Karaoke Flow**: Word-by-word highlighted text preview as Lumi synthesizes speech.
+- **Interactive Ring Controls**: ChatGPT-style action buttons for interrupting, force-sending, or canceling sessions.
+
+### 3. `ChatView.qml`
 - **Message Bubbles**: Styled user, assistant, and error message cards.
-- **Auto-scroll**: Automatically scrolls down as new assistant text or streaming updates arrive.
-- **Thinking Indicator**: Pulsing dot animation indicating background Gemini processing.
+- **Auto-scroll**: Automatically scrolls down as new assistant text arrives.
+- **Thinking Indicator**: Pulsing dot animation indicating background Gemini API processing.
 
-### 3. `LumiConfigTab.qml` (Settings UI)
-- **Calibration Card**: Dedicated 2-stage calibration container featuring a clean trigger button, threshold input, and multi-line error card with text wrapping.
+### 4. `LumiConfigTab.qml` (Settings UI)
+- **Calibration Card**: Dedicated 2-stage calibration container featuring a clean trigger button, threshold input, and multi-line status card.
 - **Device Selector**: PulseAudio / PipeWire source selection dropdown.
