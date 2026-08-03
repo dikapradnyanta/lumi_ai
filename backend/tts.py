@@ -129,39 +129,39 @@ def speak_piper(text: str) -> bool:
         log(f"Piper: loading model {os.path.basename(PIPER_MODEL)}")
         voice = PiperVoice.load(PIPER_MODEL)
 
-        # Jalankan aplay untuk streaming PCM
+        log("Piper: synthesizing (AudioChunk API)...")
+
+        # Kumpulkan semua AudioChunk terlebih dahulu
+        chunks = list(voice.synthesize(text))
+        if not chunks:
+            log("Piper: tidak ada audio chunk dihasilkan")
+            return False
+
+        # Ambil sample_rate dari chunk pertama
+        sample_rate = chunks[0].sample_rate
+        channels = chunks[0].sample_channels
+
+        # Jalankan aplay dengan rate yang tepat
         with _player_lock:
             _player_proc = subprocess.Popen(
-                ["aplay", "-q", "-f", "S16_LE", "-r", "22050", "-c", "1", "-"],
+                ["aplay", "-q", "-f", "S16_LE", "-r", str(sample_rate), "-c", str(channels), "-"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
 
-        log("Piper: synthesizing per kalimat...")
-        import wave
-
-        # Bagi teks ke kalimat agar streaming lebih responsif
-        sentences = [s.strip() for s in text.replace("\n", ". ").split(".") if s.strip()]
-        if not sentences:
-            sentences = [text]
-
-        total_words = text.split()
         curr_word_idx = 0
 
-        for sentence in sentences:
+        for chunk in chunks:
             if _stop_event.is_set():
                 break
-            sent_words = sentence.split()
-            buf = io.BytesIO()
-            with wave.open(buf, "wb") as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)  # S16_LE = 2 bytes
-                wav_file.setframerate(voice.config.sample_rate)
-                voice.synthesize(sentence, wav_file)
-            buf.seek(44)  # skip WAV header
-            pcm_data = buf.read()
-            duration = len(pcm_data) / (voice.config.sample_rate * 2.0)
+
+            pcm_data = chunk.audio_int16_bytes
+            if not pcm_data:
+                continue
+
+            duration = len(pcm_data) / (chunk.sample_rate * chunk.sample_width * chunk.sample_channels)
+            n_words = max(1, len(str(getattr(chunk, "phonemes", "") or "").split()))
 
             try:
                 with _player_lock:
@@ -171,9 +171,9 @@ def speak_piper(text: str) -> bool:
             except BrokenPipeError:
                 break
 
-            if sent_words and duration > 0:
-                time_per_word = duration / float(len(sent_words))
-                for w in sent_words:
+            if duration > 0:
+                time_per_word = duration / n_words
+                for _ in range(n_words):
                     if _stop_event.is_set():
                         break
                     print(f"WORD:{curr_word_idx}", flush=True)
@@ -188,7 +188,7 @@ def speak_piper(text: str) -> bool:
                 except Exception:
                     pass
 
-        # Tunggu aplay selesai (kecuali di-interrupt)
+        # Tunggu aplay selesai
         if _player_proc:
             _player_proc.wait()
 
